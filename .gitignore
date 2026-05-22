@@ -1,0 +1,97 @@
+# =============================================================================
+# SG Mitigación Accidentes — único .gitignore (raíz)
+# Frontend: reglas con prefijo frontend/ (no usar frontend/.gitignore)
+# =============================================================================
+
+# --- Python / Django (backend) ---
+backend/.venv/
+backend/**/__pycache__/
+backend/.pytest_cache/
+backend/staticfiles/
+backend/db.sqlite3
+backend/arbol.txt
+*.pyc
+.Python
+
+# --- Node / Vite (frontend) ---
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/logs/
+frontend/*.log
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+frontend/lerna-debug.log*
+
+# --- Secretos y entorno ---
+.env
+.env.*
+!.env.example
+frontend/.env
+frontend/.env.*
+*.local
+
+# --- Editores / SO ---
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# --- Cursor / asistentes IA (no subir al remoto) ---
+.cursor/
+.cursorrules
+.cursorignore
+**/.cursor/
+AGENTS.md
+**/AGENTS.md
+.aider*
+**/.aider*
+
+# --- Documentación interna, memoria de grado y contexto de chat ---
+# Toda la carpeta docs/ (Markdown, prompts, SQL de trabajo, diagramas privados)
+docs/
+
+# Markdown suelto fuera de docs/ (bitácoras, árboles, notas)
+**/*.md
+!README.md
+
+# Prompts y contexto explícito (por si quedan fuera de docs/)
+**/pront.txt
+**/prompt*.txt
+**/*_chat*.md
+**/*CHAT*.md
+**/CONTEXTO_CHAT.md
+
+# Texto largo de tesis / bases (suelto en raíz o copias)
+tesis.pdf
+**/bases.txt
+
+# --- Datos Mede / ETL (no versionar datos personales ni exports grandes) ---
+salida/
+checkpoints/
+*.parquet
+Mede_Victimas*
+*.xlsx
+# CSV de datos crudos o depurados (descomentar la siguiente línea si SÍ quieres versionar un CSV de ejemplo pequeño)
+*.csv
+
+# --- Docker / volúmenes locales ---
+pgdata/
+
+# --- Misc build / caché ---
+*.egg-info/
+.eggs/
+dist/
+build/
+coverage/
+htmlcov/
+.pytest_cache/
+.cache/

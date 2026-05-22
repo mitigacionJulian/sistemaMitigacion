@@ -1,0 +1,83 @@
+from django.urls import path
+
+from . import views
+
+urlpatterns = [
+    path("dashboard/mock/", views.dashboard_mock_view, name="dashboard-mock"),
+    path(
+        "dashboard/rango-fechas/",
+        views.dashboard_rango_fechas_view,
+        name="dashboard-rango-fechas",
+    ),
+    path("dashboard/kpis/", views.dashboard_kpis_view, name="dashboard-kpis"),
+    path(
+        "dashboard/evolucion-mensual/",
+        views.dashboard_evolucion_mensual_view,
+        name="dashboard-evolucion-mensual",
+    ),
+    path(
+        "dashboard/predicciones-mensuales/",
+        views.dashboard_predicciones_mensuales_view,
+        name="dashboard-predicciones-mensuales",
+    ),
+    path(
+        "dashboard/prioridad-territorial/",
+        views.dashboard_prioridad_territorial_view,
+        name="dashboard-prioridad-territorial",
+    ),
+    path(
+        "dashboard/proporcion-fatales-mensual/",
+        views.dashboard_proporcion_fatales_mensual_view,
+        name="dashboard-proporcion-fatales-mensual",
+    ),
+    path(
+        "dashboard/carga-esperada-territorial/",
+        views.dashboard_carga_esperada_territorial_view,
+        name="dashboard-carga-esperada-territorial",
+    ),
+    path(
+        "dashboard/carga-esperada-espacial/",
+        views.dashboard_carga_esperada_espacial_view,
+        name="dashboard-carga-esperada-espacial",
+    ),
+    path(
+        "dashboard/por-dia-semana/",
+        views.dashboard_por_dia_semana_view,
+        name="dashboard-por-dia-semana",
+    ),
+    path(
+        "dashboard/matriz-dia-hora/",
+        views.dashboard_matriz_dia_hora_view,
+        name="dashboard-matriz-dia-hora",
+    ),
+    path(
+        "dashboard/matriz-dia-hora-proyectada/",
+        views.dashboard_matriz_dia_hora_proyectada_view,
+        name="dashboard-matriz-dia-hora-proyectada",
+    ),
+    path(
+        "dashboard/por-dia-semana-proyectado/",
+        views.dashboard_por_dia_semana_proyectado_view,
+        name="dashboard-por-dia-semana-proyectado",
+    ),
+    path(
+        "dashboard/incidentes-mapa/",
+        views.dashboard_incidentes_mapa_view,
+        name="dashboard-incidentes-mapa",
+    ),
+    path(
+        "dashboard/distribucion-gravedad/",
+        views.dashboard_distribucion_gravedad_view,
+        name="dashboard-distribucion-gravedad",
+    ),
+    path(
+        "dashboard/distribucion-clase-incidente/",
+        views.dashboard_distribucion_clase_incidente_view,
+        name="dashboard-distribucion-clase-incidente",
+    ),
+    path("dashboard/tops/", views.dashboard_tops_view, name="dashboard-tops"),
+    # Sin barra final (algunos clientes/proxies la omiten antes del query string)
+    path("dashboard/tops", views.dashboard_tops_view),
+    path("dashboard/catalogos/", views.dashboard_catalogos_view, name="dashboard-catalogos"),
+    path("dashboard/barrios/", views.dashboard_barrios_view, name="dashboard-barrios"),
+]
