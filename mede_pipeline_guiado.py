@@ -11,6 +11,7 @@ Pasos disponibles (ver --list-steps):
   analyze_raw     Análisis en consola del crudo (analizar + resumen exploratorio)
   depurar         Reglas de limpieza (depurar_mede)
   analyze_clean   Análisis en consola tras depurar
+  validate_coords Resumen F2.2 de coordenadas (rango Medellín, alineado a PostGIS)
   filter          Filtros opcionales: quitar filas con NA y tope Edad<=67 (como mede_eda_export)
   figures         PNG de apoyo (reutiliza funciones internas de mede_eda_export; requiere matplotlib)
   export_xlsx     Guarda .xlsx listo para revisión o para convertir a CSV
@@ -56,6 +57,7 @@ STEP_ORDER = (
     "analyze_raw",
     "depurar",
     "analyze_clean",
+    "validate_coords",
     "filter",
     "figures",
     "export_xlsx",
@@ -393,6 +395,15 @@ def main(argv: list[str] | None = None) -> int:
             mede.imprimir_resumen_exploratorio(df_dep, top_k=10)
             _pause(
                 "Decide si aplicas filter (dropna / tope edad) en el siguiente paso.",
+                args.pause,
+            )
+
+        elif step == "validate_coords":
+            if df_dep is None:
+                raise SystemExit("validate_coords requiere depurar o --start-from con checkpoint 02.")
+            mede.imprimir_resumen_coordenadas(df_dep)
+            _pause(
+                "Coordenadas fuera de rango no reciben ubicacion PostGIS; revisa antes de exportar.",
                 args.pause,
             )
 

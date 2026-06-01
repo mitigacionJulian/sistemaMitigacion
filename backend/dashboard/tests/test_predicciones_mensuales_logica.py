@@ -132,6 +132,43 @@ def test_excluir_covid_deja_hueco_sin_ajuste():
     assert by_mes["2020-02"] is not None
 
 
+def test_media_movil_tres_meses():
+    act = {"2021-01": 10, "2021-02": 20, "2021-03": 30}
+    with patch("dashboard.predicciones_mensuales._query_mensual_valores", return_value=act):
+        p = build_predicciones_mensuales_payload(
+            date(2021, 1, 1),
+            date(2021, 3, 31),
+            FiltrosKpi(),
+            2,
+            modelo="media_movil",
+            ventana_ma=3,
+        )
+    assert p["meta"]["modelo"] == "media_movil"
+    assert p["meta"]["ventana_meses"] == 3
+    assert p["meta"]["sin_modelo"] is False
+    assert p["meta"]["coeficientes"]["ultima_media_movil"] == 20.0
+    hist = [r["ajuste_modelo"] for r in p["serie_historica"]]
+    assert hist == [10.0, 15.0, 20.0]
+    assert len(p["proyeccion"]) == 2
+    assert p["proyeccion"][0]["incidentes_proyectados"] == 20.0
+    assert p["proyeccion"][1]["incidentes_proyectados"] == 20.0
+
+
+def test_media_movil_insuficiente_meses():
+    act = {"2021-01": 10, "2021-02": 12}
+    with patch("dashboard.predicciones_mensuales._query_mensual_valores", return_value=act):
+        p = build_predicciones_mensuales_payload(
+            date(2021, 1, 1),
+            date(2021, 2, 28),
+            FiltrosKpi(),
+            1,
+            modelo="media_movil",
+            ventana_ma=3,
+        )
+    assert p["meta"]["sin_modelo"] is True
+    assert p["proyeccion"] == []
+
+
 def test_desglose_clase():
     def fake_query(inicio, fin, filtros, variable):
         if filtros.clase_incidente_id == 1:

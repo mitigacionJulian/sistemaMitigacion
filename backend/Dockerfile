@@ -7,6 +7,11 @@ ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
+    gdal-bin \
+    libgdal-dev \
+    libgeos-dev \
+    libproj-dev \
+    proj-bin \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

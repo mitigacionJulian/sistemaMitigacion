@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { PhoneCoInput } from '../components/PhoneCoInput.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 
 export function Register() {
@@ -9,6 +10,8 @@ export function Register() {
   const [email, setEmail] = useState('')
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
+  const [telefono, setTelefono] = useState('')
+  const [rolCodigo, setRolCodigo] = useState('ciudadano')
   const [password, setPassword] = useState('')
   const [passwordConfirm, setPasswordConfirm] = useState('')
   const [error, setError] = useState(null)
@@ -19,15 +22,21 @@ export function Register() {
     setError(null)
     setPending(true)
     try {
-      await register({
+      const u = await register({
         username,
         email,
         first_name: firstName,
         last_name: lastName,
+        telefono,
+        rol_codigo: rolCodigo,
         password,
         password_confirm: passwordConfirm,
       })
-      navigate('/tablero')
+      if (u?.perfil?.rol_codigo === 'analista') {
+        navigate('/predicciones', { replace: true })
+      } else {
+        navigate('/tablero', { replace: true })
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al registrar')
     } finally {
@@ -36,12 +45,8 @@ export function Register() {
   }
 
   return (
-    <div className="auth-card">
-      <h1>Registro</h1>
-      <p className="muted">
-        Se crea un usuario en <code>auth_user</code> y un perfil con rol{' '}
-        <strong>ciudadano</strong> (tabla <code>perfil_usuario</code>).
-      </p>
+    <div className="auth-card auth-card-wide">
+      <h1>Crear cuenta</h1>
       <form onSubmit={onSubmit} className="form">
         {error && <p className="form-error">{error}</p>}
         <label>
@@ -74,6 +79,17 @@ export function Register() {
           </label>
         </div>
         <label>
+          Celular (WhatsApp)
+          <PhoneCoInput id="reg-telefono" value={telefono} onChange={setTelefono} />
+        </label>
+        <label>
+          Rol
+          <select value={rolCodigo} onChange={(e) => setRolCodigo(e.target.value)} required>
+            <option value="ciudadano">Ciudadano — consulta tablero e inicio</option>
+            <option value="analista">Analista — incluye predicciones</option>
+          </select>
+        </label>
+        <label>
           Contraseña
           <input
             type="password"
@@ -94,12 +110,12 @@ export function Register() {
             required
           />
         </label>
-        <button type="submit" className="btn btn-primary" disabled={pending}>
+        <button type="submit" className="btn btn-primary btn-block" disabled={pending}>
           {pending ? 'Creando cuenta…' : 'Registrarme'}
         </button>
       </form>
-      <p className="muted">
-        ¿Ya tienes cuenta? <Link to="/login">Ingresar</Link>
+      <p className="auth-links muted small">
+        ¿Ya tiene cuenta? <Link to="/login">Iniciar sesión</Link>
       </p>
     </div>
   )

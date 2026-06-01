@@ -2,7 +2,7 @@
 P12 — Matriz día×hora proyectada.
 P13 — Proyección por día de semana (y participación en horizonte).
 
-Reparte el total de incidentes proyectados (modelo mensual estacional/OLS)
+Reparte el total de incidentes proyectados (modelo mensual OLS/estacional/media móvil)
 según el patrón histórico día×hora o día de semana del periodo filtrado.
 """
 from __future__ import annotations
@@ -19,9 +19,13 @@ from .por_dia_semana import (
     _carga_nivel_vs_uniforme,
     _query_por_dia,
 )
-from .predicciones_mensuales import _build_single
+from .predicciones_mensuales import (
+    MA_VENTANA_DEFAULT,
+    _build_single,
+    normalize_modelo_proyeccion,
+)
 
-ModeloPatron = str  # "ols" | "estacional"
+ModeloPatron = str  # "ols" | "estacional" | "media_movil"
 
 _LAPLACE_CELDA = 0.5
 _LAPLACE_DIA = 0.25
@@ -34,6 +38,7 @@ def _total_proyectado_horizonte(
     horizonte_meses: int,
     modelo: ModeloPatron,
     excluir_covid: bool,
+    ventana_ma: int = MA_VENTANA_DEFAULT,
 ) -> tuple[float | None, dict[str, Any]]:
     bloque = _build_single(
         inicio,
@@ -43,6 +48,7 @@ def _total_proyectado_horizonte(
         modelo,  # type: ignore[arg-type]
         "incidentes",
         excluir_covid=excluir_covid,
+        ventana_ma=ventana_ma,
     )
     meta = bloque.get("meta") or {}
     if meta.get("sin_modelo"):
@@ -100,15 +106,16 @@ def build_matriz_dia_hora_proyectada_payload(
     horizonte_meses: int = 3,
     modelo: str = "estacional",
     excluir_covid: bool = True,
+    ventana_ma: int = MA_VENTANA_DEFAULT,
 ) -> dict[str, Any]:
     filtros = filtros or FiltrosKpi()
     hm = max(1, min(12, int(horizonte_meses)))
-    mod: ModeloPatron = "ols" if modelo == "ols" else "estacional"
+    mod = normalize_modelo_proyeccion(modelo)
 
     actual = _query_heatmap(inicio, fin, filtros)
     total_hist = sum(actual.values())
     total_hor, meta_pred = _total_proyectado_horizonte(
-        inicio, fin, filtros, hm, mod, excluir_covid
+        inicio, fin, filtros, hm, mod, excluir_covid, ventana_ma
     )
 
     sin_datos = total_hist == 0 or total_hor is None
@@ -167,64 +174,72 @@ def build_matriz_dia_hora_proyectada_payload(
     suma_proj = sum(proyectados)
     coherente = suma_proj == suma_delta + total_hist
 
-    return {
-        "meta": {
-            "fecha_inicio": inicio.isoformat(),
-            "fecha_fin": fin.isoformat(),
-            "horizonte_meses": hm,
-            "modelo": mod,
-            "total_incidentes_periodo": total_hist,
-            "total_proyectado_horizonte": round(total_hor or 0, 2) if total_hor is not None else None,
-            "meses_en_periodo": meses_periodo,
-            "max_observados": max_obs,
-            "max_proyectados": max_proj,
-            "sin_datos": sin_datos,
-            "validacion_diferencia": {
-                "suma_observados_periodo": total_hist,
-                "suma_proyectados_horizonte": suma_proj,
-                "suma_delta_celdas": suma_delta,
-                "coherente": coherente,
-                "formula": "delta_proyeccion_menos_periodo = incidentes_proyectados_horizonte - incidentes_observados_periodo (por celda)",
-            },
-            "lectura_diferencia": (
-                "La matriz «Diferencia» resta, celda a celda, los incidentes del periodo seleccionado "
-                f"({total_hist} en {meses_periodo} mes(es)) de la proyección repartida en el horizonte "
-                f"({suma_proj} incidentes en {hm} mes(es) proyectados). "
-                "No es lo mismo que comparar mes a mes: el periodo puede ser más largo que el horizonte. "
-                f"La suma de todas las celdas cumple ΣΔ = proyección − periodo ({suma_delta} = {suma_proj} − {total_hist}). "
-                "Para comparar solo el patrón relativo (sin el efecto del tamaño del periodo), use "
-                "delta_participacion_pp en cada celda (puntos porcentuales de participación)."
-            ),
-            "prediccion_mensual": {
-                "sin_modelo": meta_pred.get("sin_modelo"),
-                "r2": meta_pred.get("r2"),
-                "interpretacion_bondad": meta_pred.get("interpretacion_bondad"),
-            },
-            "que_mide": (
-                "Distribución esperada de incidentes por día de la semana y hora en el horizonte, "
-                "a partir del total proyectado por el modelo mensual y el patrón histórico del periodo."
-            ),
-            "metodo": (
-                f"Se proyectan {hm} mes(es) de incidentes con modelo {mod} (mismos filtros). "
-                f"Ese total se reparte en 7×24 celdas según proporciones del periodo observado "
-                f"(suavizado Laplace {_LAPLACE_CELDA} por celda). No es probabilidad individual."
-            ),
-            "interpretacion": (
-                "Use las celdas más oscuras en «Proyección» para priorizar vigilancia operativa "
-                "(franjas día×hora con mayor carga esperada). Compare con «Periodo seleccionado» "
-                "y la matriz de diferencia (proyección − periodo) para ver dónde se espera más volumen futuro."
-            ),
-            "limitaciones": (
-                "Asume que el patrón relativo día×hora del periodo filtrado se mantiene en el futuro; "
-                "no modela cada celda con serie propia. Con pocos incidentes o sin modelo mensual, "
-                "no hay proyección."
-            ),
-            "filtros": {
-                "comuna_id": filtros.comuna_id,
-                "barrio_id": filtros.barrio_id,
-                "clase_incidente_id": filtros.clase_incidente_id,
-            },
+    modelo_meta_txt = mod
+    if mod == "media_movil":
+        modelo_meta_txt = f"media_movil (ventana {ventana_ma})"
+
+    meta_out: dict[str, Any] = {
+        "fecha_inicio": inicio.isoformat(),
+        "fecha_fin": fin.isoformat(),
+        "horizonte_meses": hm,
+        "modelo": mod,
+        "total_incidentes_periodo": total_hist,
+        "total_proyectado_horizonte": round(total_hor or 0, 2) if total_hor is not None else None,
+        "meses_en_periodo": meses_periodo,
+        "max_observados": max_obs,
+        "max_proyectados": max_proj,
+        "sin_datos": sin_datos,
+        "validacion_diferencia": {
+            "suma_observados_periodo": total_hist,
+            "suma_proyectados_horizonte": suma_proj,
+            "suma_delta_celdas": suma_delta,
+            "coherente": coherente,
+            "formula": "delta_proyeccion_menos_periodo = incidentes_proyectados_horizonte - incidentes_observados_periodo (por celda)",
         },
+        "lectura_diferencia": (
+            "La matriz «Diferencia» resta, celda a celda, los incidentes del periodo seleccionado "
+            f"({total_hist} en {meses_periodo} mes(es)) de la proyección repartida en el horizonte "
+            f"({suma_proj} incidentes en {hm} mes(es) proyectados). "
+            "No es lo mismo que comparar mes a mes: el periodo puede ser más largo que el horizonte. "
+            f"La suma de todas las celdas cumple ΣΔ = proyección − periodo ({suma_delta} = {suma_proj} − {total_hist}). "
+            "Para comparar solo el patrón relativo (sin el efecto del tamaño del periodo), use "
+            "delta_participacion_pp en cada celda (puntos porcentuales de participación)."
+        ),
+        "prediccion_mensual": {
+            "sin_modelo": meta_pred.get("sin_modelo"),
+            "r2": meta_pred.get("r2"),
+            "interpretacion_bondad": meta_pred.get("interpretacion_bondad"),
+        },
+        "que_mide": (
+            "Distribución esperada de incidentes por día de la semana y hora en el horizonte, "
+            "a partir del total proyectado por el modelo mensual y el patrón histórico del periodo."
+        ),
+        "metodo": (
+            f"Se proyectan {hm} mes(es) de incidentes con modelo {modelo_meta_txt} (mismos filtros). "
+            f"Ese total se reparte en 7×24 celdas según proporciones del periodo observado "
+            f"(suavizado Laplace {_LAPLACE_CELDA} por celda). No es probabilidad individual."
+        ),
+        "interpretacion": (
+            "Use las celdas más oscuras en «Proyección» para priorizar vigilancia operativa "
+            "(franjas día×hora con mayor carga esperada). Compare con «Periodo seleccionado» "
+            "y la matriz de diferencia (proyección − periodo) para ver dónde se espera más volumen futuro."
+        ),
+        "limitaciones": (
+            "Asume que el patrón relativo día×hora del periodo filtrado se mantiene en el futuro; "
+            "no modela cada celda con serie propia. Con pocos incidentes o sin modelo mensual, "
+            "no hay proyección."
+        ),
+        "filtros": {
+            "comuna_id": filtros.comuna_id,
+            "barrio_id": filtros.barrio_id,
+            "clase_incidente_id": filtros.clase_incidente_id,
+        },
+    }
+    if mod == "media_movil":
+        meta_out["ventana_meses"] = ventana_ma
+
+    return {
+        "meta": meta_out,
         "serie": serie,
     }
 
@@ -236,15 +251,16 @@ def build_dia_semana_proyectado_payload(
     horizonte_meses: int = 3,
     modelo: str = "estacional",
     excluir_covid: bool = True,
+    ventana_ma: int = MA_VENTANA_DEFAULT,
 ) -> dict[str, Any]:
     filtros = filtros or FiltrosKpi()
     hm = max(1, min(12, int(horizonte_meses)))
-    mod: ModeloPatron = "ols" if modelo == "ols" else "estacional"
+    mod = normalize_modelo_proyeccion(modelo)
 
     act = _query_por_dia(inicio, fin, filtros)
     total_hist = sum(act.get(d, (0, 0))[0] for d in range(7))
     total_hor, meta_pred = _total_proyectado_horizonte(
-        inicio, fin, filtros, hm, mod, excluir_covid
+        inicio, fin, filtros, hm, mod, excluir_covid, ventana_ma
     )
 
     sin_datos = total_hist == 0 or total_hor is None
@@ -279,42 +295,50 @@ def build_dia_semana_proyectado_payload(
             }
         )
 
-    return {
-        "meta": {
-            "fecha_inicio": inicio.isoformat(),
-            "fecha_fin": fin.isoformat(),
-            "horizonte_meses": hm,
-            "modelo": mod,
-            "total_incidentes_periodo": total_hist,
-            "total_proyectado_horizonte": round(total_hor or 0, 2) if total_hor is not None else None,
-            "sin_datos": sin_datos,
-            "prediccion_mensual": {
-                "sin_modelo": meta_pred.get("sin_modelo"),
-                "r2": meta_pred.get("r2"),
-                "interpretacion_bondad": meta_pred.get("interpretacion_bondad"),
-            },
-            "que_mide": (
-                "Incidentes esperados por día de la semana en el horizonte de predicción, "
-                "repartidos según la concentración observada en el periodo filtrado."
-            ),
-            "metodo": (
-                f"Total de {hm} mes(es) proyectado con modelo {mod}; reparto por día con proporciones "
-                f"del periodo (suavizado Laplace {_LAPLACE_DIA}). Semáforo proyectado usa los mismos "
-                "umbrales que el bloque «Por día de la semana» (ratio vs. 14,29% uniforme)."
-            ),
-            "interpretacion": (
-                "Compare barras observadas vs. proyectadas: días que concentran más carga futura "
-                "sugieren cuándo reforzar operación en el horizonte elegido."
-            ),
-            "limitaciones": (
-                "No proyecta serie propia por día; extrapola el patrón del periodo. "
-                "No sustituye el semáforo histórico del mismo panel."
-            ),
-            "filtros": {
-                "comuna_id": filtros.comuna_id,
-                "barrio_id": filtros.barrio_id,
-                "clase_incidente_id": filtros.clase_incidente_id,
-            },
+    modelo_meta_txt = mod
+    if mod == "media_movil":
+        modelo_meta_txt = f"media_movil (ventana {ventana_ma})"
+
+    meta_out: dict[str, Any] = {
+        "fecha_inicio": inicio.isoformat(),
+        "fecha_fin": fin.isoformat(),
+        "horizonte_meses": hm,
+        "modelo": mod,
+        "total_incidentes_periodo": total_hist,
+        "total_proyectado_horizonte": round(total_hor or 0, 2) if total_hor is not None else None,
+        "sin_datos": sin_datos,
+        "prediccion_mensual": {
+            "sin_modelo": meta_pred.get("sin_modelo"),
+            "r2": meta_pred.get("r2"),
+            "interpretacion_bondad": meta_pred.get("interpretacion_bondad"),
         },
+        "que_mide": (
+            "Incidentes esperados por día de la semana en el horizonte de predicción, "
+            "repartidos según la concentración observada en el periodo filtrado."
+        ),
+        "metodo": (
+            f"Total de {hm} mes(es) proyectado con modelo {modelo_meta_txt}; reparto por día con proporciones "
+            f"del periodo (suavizado Laplace {_LAPLACE_DIA}). Semáforo proyectado usa los mismos "
+            "umbrales que el bloque «Por día de la semana» (ratio vs. 14,29% uniforme)."
+        ),
+        "interpretacion": (
+            "Compare barras observadas vs. proyectadas: días que concentran más carga futura "
+            "sugieren cuándo reforzar operación en el horizonte elegido."
+        ),
+        "limitaciones": (
+            "No proyecta serie propia por día; extrapola el patrón del periodo. "
+            "No sustituye el semáforo histórico del mismo panel."
+        ),
+        "filtros": {
+            "comuna_id": filtros.comuna_id,
+            "barrio_id": filtros.barrio_id,
+            "clase_incidente_id": filtros.clase_incidente_id,
+        },
+    }
+    if mod == "media_movil":
+        meta_out["ventana_meses"] = ventana_ma
+
+    return {
+        "meta": meta_out,
         "serie": serie,
     }

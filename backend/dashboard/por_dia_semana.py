@@ -12,6 +12,7 @@ from typing import Any
 from django.db import connection
 
 from .kpis import FiltrosKpi, _shift_year_back
+from .territorio_sql import append_filtros_territoriales, meta_filtros_dict, nota_modo_territorio
 
 _DIA_LABEL = {
     0: "Domingo",
@@ -35,15 +36,7 @@ def _query_por_dia(
     where = ["i.fecha_incidente >= %s", "i.fecha_incidente <= %s"]
     params: list[Any] = [inicio, fin]
 
-    if filtros.comuna_id is not None:
-        where.append("i.comuna_id = %s")
-        params.append(filtros.comuna_id)
-    if filtros.barrio_id is not None:
-        where.append("i.barrio_id = %s")
-        params.append(filtros.barrio_id)
-    if filtros.clase_incidente_id is not None:
-        where.append("i.clase_incidente_id = %s")
-        params.append(filtros.clase_incidente_id)
+    append_filtros_territoriales(where, params, filtros)
 
     wh = " AND ".join(where)
     sql = f"""
@@ -145,11 +138,8 @@ def build_dia_semana_payload(
                 "riesgo_score = participacion_incidentes_pct; riesgo_nivel = carga_dia_nivel "
                 "(nombres antiguos)."
             ),
-            "filtros": {
-                "comuna_id": filtros.comuna_id,
-                "barrio_id": filtros.barrio_id,
-                "clase_incidente_id": filtros.clase_incidente_id,
-            },
+            "filtros": meta_filtros_dict(filtros),
+            "nota_territorio": nota_modo_territorio(filtros.modo_territorio),
         },
         "serie": serie,
     }

@@ -46,6 +46,33 @@ def test_proporcion_ols_con_datos():
     assert p["proyeccion"][0]["pct_fatales_proyectado"] >= 5.0
 
 
+def test_proporcion_media_movil():
+    raw = {
+        "2021-01": {"victimas": 100, "fatales": 10},
+        "2021-02": {"victimas": 120, "fatales": 18},
+        "2021-03": {"victimas": 110, "fatales": 11},
+    }
+    with patch(
+        "dashboard.proporcion_fatales_mensual._query_victimas_fatales_mes",
+        return_value=raw,
+    ):
+        p = build_proporcion_fatales_payload(
+            date(2021, 1, 1),
+            date(2021, 3, 31),
+            FiltrosKpi(),
+            horizonte_meses=2,
+            modelo="media_movil",
+            ventana_ma=3,
+        )
+
+    assert p["meta"]["modelo"] == "media_movil"
+    assert p["meta"]["ventana_meses"] == 3
+    assert not p["meta"]["sin_modelo"]
+    assert p["meta"]["coeficientes"]["ultima_media_movil"] == pytest.approx(11.6667, rel=1e-3)
+    assert p["proyeccion"][0]["pct_fatales_proyectado"] == pytest.approx(11.67, abs=0.02)
+    assert p["proyeccion"][1]["pct_fatales_proyectado"] == pytest.approx(11.67, abs=0.02)
+
+
 def test_proyeccion_estable_no_cae_a_cero():
     raw = {
         f"2020-{m:02d}": {"victimas": 200, "fatales": 20}

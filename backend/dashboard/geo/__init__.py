@@ -1,0 +1,1 @@
+"""Utilidades geoespaciales del dashboard."""

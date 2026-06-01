@@ -7,6 +7,8 @@ import { Dashboard } from './pages/Dashboard.jsx'
 import { Landing } from './pages/Landing.jsx'
 import { Login } from './pages/Login.jsx'
 import { Register } from './pages/Register.jsx'
+import { RecoverPasswordGate } from './pages/RecoverPasswordGate.jsx'
+import { RequireAnalista } from './components/RequireAnalista.jsx'
 
 const Predicciones = lazy(() =>
   import('./pages/Predicciones.jsx').then((m) => ({ default: m.Predicciones })),
@@ -23,15 +25,18 @@ export default function App() {
             <Route
               path="predicciones"
               element={
-                <RouteErrorBoundary>
-                  <Suspense fallback={<p className="muted">Cargando predicciones…</p>}>
-                    <Predicciones />
-                  </Suspense>
-                </RouteErrorBoundary>
+                <RequireAnalista>
+                  <RouteErrorBoundary>
+                    <Suspense fallback={<p className="muted">Cargando predicciones…</p>}>
+                      <Predicciones />
+                    </Suspense>
+                  </RouteErrorBoundary>
+                </RequireAnalista>
               }
             />
             <Route path="login" element={<Login />} />
             <Route path="registro" element={<Register />} />
+            <Route path="recuperar-clave" element={<RecoverPasswordGate />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

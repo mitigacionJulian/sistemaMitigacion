@@ -2,7 +2,8 @@
 Proyección descriptiva mensual (Fase A: P02–P04, P06).
 
 Modelos: OLS lineal (P01), tendencia + estacionalidad por mes calendario (P02),
-Poisson log-lineal (P04). Variables: incidentes, víctimas, víctimas fatales (P03).
+Poisson log-lineal (P04), media móvil simple (P05). Variables: incidentes, víctimas,
+víctimas fatales (P03).
 Desglose opcional por clase de incidente (P06).
 """
 from __future__ import annotations
@@ -16,9 +17,39 @@ from django.db import connection
 
 from .evolucion_mensual import _etiqueta_mes_ym, _iter_meses_clave
 from .kpis import FiltrosKpi, _fatal_sql_expr
+from .territorio_sql import (
+    append_filtros_territoriales,
+    meta_filtros_dict,
+    nota_modo_territorio,
+    punto_critico_serie_sql,
+)
 
-ModeloPred = Literal["ols", "estacional", "poisson"]
+ModeloPred = Literal["ols", "estacional", "poisson", "media_movil"]
 VariablePred = Literal["incidentes", "victimas", "victimas_fatales"]
+
+MA_VENTANA_DEFAULT = 3
+MA_VENTANA_MIN = 2
+MA_VENTANA_MAX = 12
+
+MODELOS_PROYECCION_CARGA = frozenset({"ols", "estacional", "media_movil"})
+
+
+def normalize_modelo_proyeccion(modelo: str, default: ModeloPred = "estacional") -> ModeloPred:
+    raw = (modelo or default).strip().lower()
+    aliases: dict[str, ModeloPred] = {
+        "ols": "ols",
+        "lineal": "ols",
+        "estacional": "estacional",
+        "seasonal": "estacional",
+        "media_movil": "media_movil",
+        "ma": "media_movil",
+        "moving_average": "media_movil",
+    }
+    if raw in aliases:
+        return aliases[raw]
+    if raw in MODELOS_PROYECCION_CARGA:
+        return raw  # type: ignore[return-value]
+    return default
 
 VARIABLE_LABELS = {
     "incidentes": "Incidentes",
@@ -70,21 +101,14 @@ def _query_mensual_valores(
     where = ["i.fecha_incidente >= %s", "i.fecha_incidente <= %s"]
     params: list[Any] = [inicio, fin]
 
-    if filtros.comuna_id is not None:
-        where.append("i.comuna_id = %s")
-        params.append(filtros.comuna_id)
-    if filtros.barrio_id is not None:
-        where.append("i.barrio_id = %s")
-        params.append(filtros.barrio_id)
-    if filtros.clase_incidente_id is not None:
-        where.append("i.clase_incidente_id = %s")
-        params.append(filtros.clase_incidente_id)
+    append_filtros_territoriales(where, params, filtros)
     if filtros.via_id is not None:
         where.append("i.via_id = %s")
         params.append(filtros.via_id)
-    if filtros.punto_critico_id is not None:
-        where.append("i.punto_critico_id = %s")
-        params.append(filtros.punto_critico_id)
+
+    join_sql, join_params, pc_where, pc_params = punto_critico_serie_sql(filtros)
+    where.extend(pc_where)
+    params.extend(pc_params)
 
     if variable == "incidentes":
         valor_sql = "COUNT(DISTINCT i.id)::bigint"
@@ -99,6 +123,7 @@ def _query_mensual_valores(
       to_char(i.fecha_incidente, 'YYYY-MM') AS mes,
       {valor_sql} AS valor
     FROM incidente i
+    {join_sql}
     LEFT JOIN victima v ON v.incidente_id = i.id
     LEFT JOIN gravedad_victima gv ON v.gravedad_victima_id = gv.id
     WHERE {wh}
@@ -107,7 +132,7 @@ def _query_mensual_valores(
     """
     out: dict[str, int] = {}
     with connection.cursor() as cursor:
-        cursor.execute(sql, params)
+        cursor.execute(sql, join_params + params)
         for row in cursor.fetchall():
             out[str(row[0])] = int(row[1] or 0)
     return out
@@ -118,12 +143,7 @@ def _query_clases_con_datos(inicio: date, fin: date, filtros: FiltrosKpi) -> lis
     filtros = filtros or FiltrosKpi()
     where = ["i.fecha_incidente >= %s", "i.fecha_incidente <= %s", "i.clase_incidente_id IS NOT NULL"]
     params: list[Any] = [inicio, fin]
-    if filtros.comuna_id is not None:
-        where.append("i.comuna_id = %s")
-        params.append(filtros.comuna_id)
-    if filtros.barrio_id is not None:
-        where.append("i.barrio_id = %s")
-        params.append(filtros.barrio_id)
+    append_filtros_territoriales(where, params, filtros)
     wh = " AND ".join(where)
     sql = f"""
     SELECT i.clase_incidente_id, COALESCE(ci.nombre, 'Sin clase') AS nombre,
@@ -373,6 +393,34 @@ def _fit_estacional(serie: _SerieMensual) -> tuple[list[float], list[float], dic
     return yhat, beta, coef
 
 
+def _clamp_ventana_ma(ventana: int) -> int:
+    return max(MA_VENTANA_MIN, min(MA_VENTANA_MAX, int(ventana)))
+
+
+def _fit_media_movil(
+    serie: _SerieMensual,
+    ventana: int,
+) -> tuple[list[float], list[float], dict[str, Any]]:
+    """Media móvil simple trailing: promedio de los últimos k meses (incluye el mes actual)."""
+    k = _clamp_ventana_ma(ventana)
+    ys = [float(v) for v in serie.valores]
+    n = len(ys)
+    yhat: list[float] = []
+    for i in range(n):
+        start = max(0, i - k + 1)
+        window = ys[start : i + 1]
+        yhat.append(sum(window) / len(window))
+    tail = ys[-k:] if n >= k else ys
+    last_ma = sum(tail) / len(tail) if tail else 0.0
+    coef = {
+        "ventana_meses": k,
+        "ultima_media_movil": round(last_ma, 4),
+        "metodo_ventana": "media_simple_trailing",
+        **_metricas_ajuste(ys, yhat, 1),
+    }
+    return yhat, [last_ma, float(k)], coef
+
+
 def _fit_poisson(serie: _SerieMensual) -> tuple[list[float], list[float], dict[str, Any]]:
     """Poisson log-lineal: IRLS (mínimos cuadrados ponderados iterados), estable para conteos."""
     n = len(serie.meses)
@@ -465,6 +513,8 @@ def _forecast_values(
             else:
                 y = sum(b * xv for b, xv in zip(beta, row))
             y = max(0.0, y)
+        elif modelo == "media_movil" and beta:
+            y = max(0.0, beta[0])
         else:
             y = yhat_hist[-1] if yhat_hist else 0.0
         fore.append(round(y, 2))
@@ -509,6 +559,12 @@ def _metodo_texto(modelo: ModeloPred) -> str:
             "(enero referencia) y, si hay ≥2 años y ≥18 meses en el ajuste, efectos por año "
             "(primer año referencia)."
         )
+    if modelo == "media_movil":
+        return (
+            "Media móvil simple (ventana k meses): el ajuste histórico es el promedio "
+            "de los últimos k meses incluyendo el mes actual; la proyección repite la media "
+            "de los k meses más recientes del ajuste."
+        )
     return (
         "Modelo de Poisson log-lineal (GLM): tendencia + estacionalidad por mes; "
         "ajuste por scoring iterativo (máx. verosimilitud)."
@@ -524,12 +580,20 @@ def _limitaciones_texto(modelo: ModeloPred, variable: VariablePred) -> str:
         return base + " El modelo OLS no captura estacionalidad intra-anual."
     if modelo == "estacional":
         return base + " La estacionalidad asume patrón repetible año a año en el rango disponible."
+    if modelo == "media_movil":
+        return (
+            base
+            + " La media móvil no modela tendencia ni estacionalidad; suaviza la serie "
+            "y asume persistencia del nivel reciente."
+        )
     return base + " Poisson asume varianza≈media; si hay sobredispersión, la incertidumbre puede subestimarse."
 
 
-def _min_meses_modelo(modelo: ModeloPred) -> int:
+def _min_meses_modelo(modelo: ModeloPred, ventana_ma: int = MA_VENTANA_DEFAULT) -> int:
     if modelo == "ols":
         return 2
+    if modelo == "media_movil":
+        return _clamp_ventana_ma(ventana_ma)
     return 3
 
 
@@ -545,8 +609,10 @@ def _build_single(
     modelo: ModeloPred,
     variable: VariablePred,
     excluir_covid: bool = False,
+    ventana_ma: int = MA_VENTANA_DEFAULT,
 ) -> dict[str, Any]:
     hm = max(1, min(12, int(horizonte_meses)))
+    ventana = _clamp_ventana_ma(ventana_ma)
     meses = _iter_meses_clave(inicio, fin)
     raw = _query_mensual_valores(inicio, fin, filtros, variable)
     valores = [raw.get(mk, 0) for mk in meses]
@@ -558,7 +624,7 @@ def _build_single(
     ys_fit = [float(v) for v in valores_fit]
 
     sin_modelo = (
-        n_fit < _min_meses_modelo(modelo)
+        n_fit < _min_meses_modelo(modelo, ventana)
         or (modelo == "poisson" and sum(valores_fit) == 0)
     )
     serie_historica: list[dict[str, Any]] = []
@@ -582,6 +648,10 @@ def _build_single(
             }
         elif modelo == "estacional":
             yhat_fit, beta, coeficientes = _fit_estacional(serie_fit)
+            for i, mk in enumerate(meses_fit):
+                yhat_by_mes[mk] = yhat_fit[i]
+        elif modelo == "media_movil":
+            yhat_fit, beta, coeficientes = _fit_media_movil(serie_fit, ventana)
             for i, mk in enumerate(meses_fit):
                 yhat_by_mes[mk] = yhat_fit[i]
         else:
@@ -626,12 +696,11 @@ def _build_single(
             "excluir_covid": excluir_covid,
             "meses_excluidos_ajuste": sorted(excl & set(meses)),
             "n_meses_ajuste": n_fit,
-            "filtros": {
-                "comuna_id": filtros.comuna_id,
-                "barrio_id": filtros.barrio_id,
-                "clase_incidente_id": filtros.clase_incidente_id,
-            },
+            "filtros": meta_filtros_dict(filtros),
+            "nota_territorio": nota_modo_territorio(filtros.modo_territorio),
         }
+    if modelo == "media_movil":
+        meta["ventana_meses"] = ventana
     if coeficientes:
         meta["interpretacion_bondad"] = coeficientes.get("interpretacion_bondad")
         meta["bondad_nivel"] = coeficientes.get("bondad_nivel")
@@ -652,9 +721,13 @@ def build_predicciones_mensuales_payload(
     variable: str = "incidentes",
     desglose_clase: bool = False,
     excluir_covid: bool = False,
+    ventana_ma: int = MA_VENTANA_DEFAULT,
 ) -> dict[str, Any]:
     filtros = filtros or FiltrosKpi()
-    mod: ModeloPred = modelo if modelo in ("ols", "estacional", "poisson") else "ols"
+    mod: ModeloPred = (
+        modelo if modelo in ("ols", "estacional", "poisson", "media_movil") else "ols"
+    )
+    ventana = _clamp_ventana_ma(ventana_ma)
     var: VariablePred = (
         variable
         if variable in ("incidentes", "victimas", "victimas_fatales")
@@ -669,9 +742,17 @@ def build_predicciones_mensuales_payload(
                 comuna_id=filtros.comuna_id,
                 barrio_id=filtros.barrio_id,
                 clase_incidente_id=cid,
+                modo_territorio=filtros.modo_territorio,
             )
             bloque = _build_single(
-                inicio, fin, f_clase, horizonte_meses, mod, var, excluir_covid=excluir_covid
+                inicio,
+                fin,
+                f_clase,
+                horizonte_meses,
+                mod,
+                var,
+                excluir_covid=excluir_covid,
+                ventana_ma=ventana,
             )
             series_por_clase.append(
                 {
@@ -694,11 +775,8 @@ def build_predicciones_mensuales_payload(
                 "n_clases": len(series_por_clase),
                 "limitaciones": _limitaciones_texto(mod, var)
                 + " Cada serie usa filtro fijo por clase de incidente.",
-                "filtros": {
-                    "comuna_id": filtros.comuna_id,
-                    "barrio_id": filtros.barrio_id,
-                    "clase_incidente_id": None,
-                },
+                "filtros": meta_filtros_dict(filtros),
+                "nota_territorio": nota_modo_territorio(filtros.modo_territorio),
             },
             "series_por_clase": series_por_clase,
             "serie_historica": [],
@@ -706,7 +784,14 @@ def build_predicciones_mensuales_payload(
         }
 
     bloque = _build_single(
-        inicio, fin, filtros, horizonte_meses, mod, var, excluir_covid=excluir_covid
+        inicio,
+        fin,
+        filtros,
+        horizonte_meses,
+        mod,
+        var,
+        excluir_covid=excluir_covid,
+        ventana_ma=ventana,
     )
     bloque["meta"]["desglose_clase"] = False
     return bloque

@@ -426,6 +426,71 @@ def parse_coordenada(val: object) -> float | type(pd.NA):
         return pd.NA
 
 
+# Mismos rangos que backend/dashboard/incidentes_mapa.py y sql/postgis/002
+RANGO_LAT_MEDELLIN = (1.0, 11.0)
+RANGO_LON_MEDELLIN = (-79.0, -74.0)
+
+
+def coordenada_en_rango_medellin(lat: float, lon: float) -> bool:
+    lat_min, lat_max = RANGO_LAT_MEDELLIN
+    lon_min, lon_max = RANGO_LON_MEDELLIN
+    return lat_min <= lat <= lat_max and lon_min <= lon <= lon_max
+
+
+def resumen_coordenadas_mede(df: pd.DataFrame) -> dict[str, int | float]:
+    """
+    Conteos de calidad de coordenadas (F2.2).
+    Espera columnas Latitud/Longitud ya depuradas (float o NA).
+    """
+    total = len(df)
+    if total == 0 or "Latitud" not in df.columns or "Longitud" not in df.columns:
+        return {
+            "total_filas": total,
+            "con_latlon": 0,
+            "validas_medellin": 0,
+            "fuera_rango": 0,
+            "sin_coordenadas": total,
+            "pct_validas_medellin": 0.0,
+        }
+
+    lat = df["Latitud"]
+    lon = df["Longitud"]
+    con = lat.notna() & lon.notna()
+    con_latlon = int(con.sum())
+    sin_coord = total - con_latlon
+
+    validas = 0
+    fuera = 0
+    for la, lo in zip(lat[con], lon[con]):
+        if coordenada_en_rango_medellin(float(la), float(lo)):
+            validas += 1
+        else:
+            fuera += 1
+
+    pct = round(100.0 * validas / total, 2) if total else 0.0
+    return {
+        "total_filas": total,
+        "con_latlon": con_latlon,
+        "validas_medellin": validas,
+        "fuera_rango": fuera,
+        "sin_coordenadas": sin_coord,
+        "pct_validas_medellin": pct,
+    }
+
+
+def imprimir_resumen_coordenadas(df: pd.DataFrame) -> None:
+    """Imprime resumen legible para pipeline / consola (F2.2)."""
+    s = resumen_coordenadas_mede(df)
+    print("\n--- resumen coordenadas (F2.2, rango mapa Medellin) ---", flush=True)
+    print(f"  Filas: {s['total_filas']:,}", flush=True)
+    print(f"  Con lat/lon: {s['con_latlon']:,}", flush=True)
+    print(f"  Validas en rango ({RANGO_LAT_MEDELLIN[0]}–{RANGO_LAT_MEDELLIN[1]} lat, "
+          f"{RANGO_LON_MEDELLIN[0]}–{RANGO_LON_MEDELLIN[1]} lon): {s['validas_medellin']:,} "
+          f"({s['pct_validas_medellin']}%)", flush=True)
+    print(f"  Fuera de rango (con lat/lon): {s['fuera_rango']:,}", flush=True)
+    print(f"  Sin coordenadas: {s['sin_coordenadas']:,}", flush=True)
+
+
 def _canonico_condicion(val: object) -> object:
     s = _nfc(val)
     if not isinstance(s, str):

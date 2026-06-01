@@ -1,8 +1,14 @@
 """
 Configuración para pytest/pytest-django (SQLite en memoria).
-El proyecto en desarrollo y producción usa PostgreSQL; las pruebas no requieren Postgres.
+
+El proyecto en desarrollo usa PostgreSQL/PostGIS + GDAL (Windows OSGeo4W).
+Las pruebas no requieren Postgres ni cargar GDAL: pytest no pasa por manage.py.
 """
 from .settings import *  # noqa: F403
+
+# Evita importar django.contrib.gis (GDAL) al arrancar pytest en Windows.
+USE_POSTGIS = False
+INSTALLED_APPS = [app for app in INSTALLED_APPS if app != "django.contrib.gis"]  # noqa: F405
 
 DATABASES = {
     "default": {

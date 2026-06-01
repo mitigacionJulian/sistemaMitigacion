@@ -17,6 +17,13 @@ from django.db import connection
 from .evolucion_mensual import _iter_meses_clave
 from .kpis import FiltrosKpi, _fatal_sql_expr
 from .predicciones_mensuales import MESES_EXCLUIR_COVID_MEDE, _ols_intercept_slope
+from .territorio_sql import (
+    append_filtros_territoriales,
+    comuna_fk_col,
+    barrio_fk_col,
+    meta_filtros_dict,
+    nota_modo_territorio,
+)
 
 NivelTerritorio = Literal["comuna", "barrio"]
 
@@ -87,19 +94,13 @@ TENDENCIA_COMPONENTE_META: dict[str, str] = {
 def _where_sql(filtros: FiltrosKpi, nivel: NivelTerritorio) -> tuple[str, list[Any]]:
     where = ["i.fecha_incidente >= %s", "i.fecha_incidente <= %s"]
     params: list[Any] = []
+    col_c = comuna_fk_col(filtros.modo_territorio)
+    col_b = barrio_fk_col(filtros.modo_territorio)
     if nivel == "comuna":
-        where.append("i.comuna_id IS NOT NULL")
+        where.append(f"i.{col_c} IS NOT NULL")
     else:
-        where.append("i.barrio_id IS NOT NULL")
-    if filtros.comuna_id is not None:
-        where.append("i.comuna_id = %s")
-        params.append(filtros.comuna_id)
-    if filtros.barrio_id is not None:
-        where.append("i.barrio_id = %s")
-        params.append(filtros.barrio_id)
-    if filtros.clase_incidente_id is not None:
-        where.append("i.clase_incidente_id = %s")
-        params.append(filtros.clase_incidente_id)
+        where.append(f"i.{col_b} IS NOT NULL")
+    append_filtros_territoriales(where, params, filtros)
     return " AND ".join(where), params
 
 
@@ -113,19 +114,22 @@ def _query_totales_territorio(
     params = [inicio, fin] + base_params
     fatal = _fatal_sql_expr("gv")
 
+    col_c = comuna_fk_col(filtros.modo_territorio)
+    col_b = barrio_fk_col(filtros.modo_territorio)
+
     if nivel == "comuna":
-        id_sql = "i.comuna_id"
+        id_sql = f"i.{col_c}"
         name_sql = "COALESCE(NULLIF(trim(co.nombre), ''), 'Sin comuna')"
-        joins = "LEFT JOIN comuna co ON i.comuna_id = co.id"
-        group = "i.comuna_id, co.nombre"
+        joins = f"LEFT JOIN comuna co ON i.{col_c} = co.id"
+        group = f"i.{col_c}, co.nombre"
     else:
-        id_sql = "i.barrio_id"
+        id_sql = f"i.{col_b}"
         name_sql = "COALESCE(NULLIF(trim(b.nombre), ''), 'Sin barrio')"
-        joins = """
-        LEFT JOIN barrio b ON i.barrio_id = b.id
+        joins = f"""
+        LEFT JOIN barrio b ON i.{col_b} = b.id
         LEFT JOIN comuna co ON b.comuna_id = co.id
         """
-        group = "i.barrio_id, b.nombre, co.nombre"
+        group = f"i.{col_b}, b.nombre, co.nombre"
 
     sql = f"""
     SELECT
@@ -173,7 +177,9 @@ def _query_mensual_por_territorio(
 ) -> dict[int, dict[str, int]]:
     wh, base_params = _where_sql(filtros, nivel)
     params = [inicio, fin] + base_params
-    id_sql = "i.comuna_id" if nivel == "comuna" else "i.barrio_id"
+    col_c = comuna_fk_col(filtros.modo_territorio)
+    col_b = barrio_fk_col(filtros.modo_territorio)
+    id_sql = f"i.{col_c}" if nivel == "comuna" else f"i.{col_b}"
 
     sql = f"""
     SELECT
@@ -376,11 +382,8 @@ def _meta_base(
             "cada score normalizado 0–100 entre territorios del ranking."
         ),
         "limitaciones": _limitaciones_texto(),
-        "filtros": {
-            "comuna_id": filtros.comuna_id,
-            "barrio_id": filtros.barrio_id,
-            "clase_incidente_id": filtros.clase_incidente_id,
-        },
+        "filtros": meta_filtros_dict(filtros),
+        "nota_territorio": nota_modo_territorio(filtros.modo_territorio),
     }
     if umbrales:
         meta["umbrales_nivel"] = umbrales

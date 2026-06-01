@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { Link } from 'react-router-dom'
 import {
   Bar,
   BarChart,
@@ -89,6 +88,13 @@ const MODELO_OPTS = [
   { value: 'ols', label: 'OLS (tendencia lineal)' },
   { value: 'estacional', label: 'Estacional (tendencia + mes calendario)' },
   { value: 'poisson', label: 'Poisson log-lineal' },
+  { value: 'media_movil', label: 'Media móvil simple' },
+]
+
+const VENTANA_MA_OPTS = [
+  { value: 3, label: '3 meses' },
+  { value: 6, label: '6 meses' },
+  { value: 12, label: '12 meses' },
 ]
 
 const VARIABLE_OPTS = [
@@ -101,11 +107,13 @@ const MODELO_PROP_OPTS = [
   { value: 'estacional', label: 'Estacional sobre % (recomendado)' },
   { value: 'ols', label: 'OLS sobre % mensual' },
   { value: 'logistica', label: 'Logit-lineal (tendencia en escala logit)' },
+  { value: 'media_movil', label: 'Media móvil simple' },
 ]
 
 const MODELO_CARGA_OPTS = [
   { value: 'estacional', label: 'Estacional (recomendado)' },
   { value: 'ols', label: 'OLS (tendencia)' },
+  { value: 'media_movil', label: 'Media móvil simple' },
 ]
 
 const CARGA_CATEGORIA_COLOR = {
@@ -192,11 +200,18 @@ function buildPrediccionesLineData(serieHistorica, proyeccion) {
 function modeloLegendLabel(modelo) {
   if (modelo === 'estacional') return 'Modelo estacional + extrapolación'
   if (modelo === 'poisson') return 'Modelo Poisson + extrapolación'
+  if (modelo === 'media_movil') return 'Media móvil + extrapolación'
   return 'Tendencia OLS + extrapolación'
 }
 
-function minMesesModelo(modelo) {
-  return modelo === 'ols' ? 'dos' : 'tres'
+function minMesesModelo(modelo, ventanaMeses) {
+  if (modelo === 'ols') return 'dos'
+  if (modelo === 'media_movil' && ventanaMeses) return String(ventanaMeses)
+  return 'tres'
+}
+
+function ventanaMaQuery(modelo, ventana) {
+  return modelo === 'media_movil' ? { ventana_ma: ventana } : {}
 }
 
 function metricasBondad(c) {
@@ -311,6 +326,108 @@ function PrioridadColumnasAyuda() {
   )
 }
 
+function PrediccionesFiltrosGuia() {
+  return (
+    <details className="prioridad-ayuda-details page-intro-guide">
+      <summary>Guía para configurar los filtros</summary>
+      <div className="page-intro-guide-body muted small">
+        <p>
+          Los filtros del panel inferior aplican a <strong>todos</strong> los bloques de esta página. Tras cambiar
+          valores, pulse <strong>Actualizar</strong> para recalcular.
+        </p>
+        <ul>
+          <li>
+            <strong>Desde / Hasta:</strong> periodo histórico que alimenta el ajuste. Por defecto se carga el{' '}
+            <strong>último año con registros</strong>. Conviene al menos unos meses de historia; modelos estacionales
+            o por clase piden series más largas.
+          </li>
+          <li>
+            <strong>Comuna, barrio y clase:</strong> acotan el análisis. Deje «Todas» / «Todos» para ver la ciudad
+            completa (respetando el resto de filtros).
+          </li>
+          <li>
+            <strong>Territorio:</strong> <em>Registro Mede</em> usa comuna/barrio del expediente;{' '}
+            <em>Polígono PostGIS</em> usa la ubicación espacial del punto en el mapa.
+          </li>
+          <li>
+            <strong>Variable:</strong> qué magnitud se proyecta mes a mes (incidentes, víctimas o víctimas fatales).
+          </li>
+          <li>
+            <strong>Modelo (filtro principal):</strong> aplica a la proyección mensual del gráfico superior. Los
+            bloques de carga territorial y patrones día×hora usan el modelo de <strong>carga</strong> (selector en
+            ese bloque); la proporción de fatales tiene el suyo propio. Vea consejos abajo.
+          </li>
+          <li>
+            <strong>Desglose por clase:</strong> genera una proyección por tipo de incidente (hasta 15 clases con más
+            datos). No combina con una clase ya seleccionada en el filtro.
+          </li>
+          <li>
+            <strong>Excluir mar–ago 2020:</strong> omite esos meses del ajuste por el confinamiento COVID, sin
+            cambiar el rango visible del gráfico.
+          </li>
+          <li>
+            <strong>Horizonte de proyección:</strong> en el gráfico mensual, «Meses a proyectar» define cuántos meses
+            futuros se extrapolan. Ese mismo horizonte alimenta carga territorial y los patrones día×hora / día de
+            semana.
+          </li>
+        </ul>
+        <p>
+          <strong>Consejos para elegir el modelo</strong>
+        </p>
+        <ul>
+          <li>
+            <strong>Proyección mensual (filtro principal):</strong>
+            <ul>
+              <li>
+                <strong>Estacional</strong> — buen punto de partida si hay al menos un año de historia: captura meses
+                altos/bajos (vacaciones, fin de año, etc.) además de la tendencia.
+              </li>
+              <li>
+                <strong>OLS</strong> — serie corta o solo le interesa una recta de tendencia; no reproduce picos
+                mensuales. Útil para una lectura rápida con pocos meses (mín. 2).
+              </li>
+              <li>
+                <strong>Poisson</strong> — conteos mensuales (sobre todo <strong>incidentes</strong>); adecuado cuando
+                los valores son enteros pequeños o moderados. Si la serie es muy irregular, compare con estacional.
+              </li>
+              <li>
+                <strong>Media móvil</strong> — extrapola «como los últimos k meses» (3, 6 o 12); suaviza ruido y evita
+                extrapolar tendencias fuertes. Requiere al menos k meses en el ajuste.
+              </li>
+            </ul>
+          </li>
+          <li>
+            <strong>Proporción de fatales:</strong> use <strong>Estacional sobre %</strong> (recomendado) si el % mensual
+            varía según la época del año; <strong>OLS sobre %</strong> para tendencia simple;{' '}
+            <strong>Logit-lineal</strong> si las proporciones están muy cerca de 0 % o 100 %; <strong>Media móvil</strong>{' '}
+            para suavizar el % reciente sin asumir tendencia fuerte.
+          </li>
+          <li>
+            <strong>Carga territorial y patrones (P12/P13):</strong> <strong>Estacional</strong> (recomendado) si proyecta
+            varios meses y espera estacionalidad; <strong>OLS</strong> para tendencia lineal de incidentes por
+            territorio; <strong>Media móvil</strong> para un escenario conservador basado en el tramo reciente.
+          </li>
+          <li>
+            <strong>Prioridad territorial (P05):</strong> el componente «tendencia» del índice usa <strong>OLS</strong> fijo
+            (no sigue el selector del filtro principal). El gráfico mensual de arriba puede usar otro modelo.
+          </li>
+          <li>
+            <strong>Señales para cambiar de modelo:</strong> lea el mensaje de <em>interpretación del ajuste</em> bajo
+            el gráfico (R² / MAPE); active <strong>Excluir mar–ago 2020</strong> si el confinamiento distorsiona la
+            tendencia; amplíe fechas o pruebe estacional si OLS o MA quedan planos o muy alejados de la serie
+            observada.
+          </li>
+        </ul>
+        <p>
+          Si un bloque queda vacío, amplíe fechas, quite filtros restrictivos o pruebe otro modelo. Las proyecciones
+          son <strong>descriptivas</strong> (escenarios de tendencia), no predicciones probabilísticas con intervalo de
+          confianza.
+        </p>
+      </div>
+    </details>
+  )
+}
+
 function BondadInterpretacion({ meta, titulo = 'Interpretación del ajuste' }) {
   const texto = meta?.interpretacion_bondad ?? meta?.coeficientes?.interpretacion_bondad
   const nivel = meta?.bondad_nivel ?? meta?.coeficientes?.bondad_nivel
@@ -331,6 +448,14 @@ function ProporcionCoefResumen({ meta }) {
     return (
       <>
         Logit-lineal: pendiente en escala logit ≈ <strong>{c.pendiente_logit_mes ?? '—'}</strong>. {bondad}
+      </>
+    )
+  }
+  if (mod === 'media_movil') {
+    return (
+      <>
+        Media móvil del % fatales (ventana <strong>{c.ventana_meses ?? meta?.ventana_meses ?? '—'}</strong> meses):
+        último valor ≈ <strong>{c.ultima_media_movil ?? '—'}</strong>%. {bondad}
       </>
     )
   }
@@ -404,6 +529,15 @@ function CoefResumen({ meta }) {
       </>
     )
   }
+  if (mod === 'media_movil') {
+    return (
+      <>
+        Media móvil (ventana <strong>{c.ventana_meses ?? meta?.ventana_meses ?? '—'}</strong> meses): último
+        valor ≈ <strong>{c.ultima_media_movil ?? '—'}</strong>. {bondad}
+        <span className="muted"> (Suaviza la serie; la proyección repite el nivel reciente.)</span>
+      </>
+    )
+  }
   if (c.fallback_estacional) {
     return (
       <>
@@ -457,10 +591,12 @@ export function Predicciones() {
   const [comunaId, setComunaId] = useState('')
   const [barrioId, setBarrioId] = useState('')
   const [claseId, setClaseId] = useState('')
+  const [modoTerritorio, setModoTerritorio] = useState('registro')
 
   const [predicciones, setPredicciones] = useState(null)
   const [horizontePredicciones, setHorizontePredicciones] = useState(3)
   const [modeloPred, setModeloPred] = useState('ols')
+  const [ventanaMa, setVentanaMa] = useState(3)
   const [variablePred, setVariablePred] = useState('incidentes')
   const [desglosePorClase, setDesglosePorClase] = useState(false)
   const [excluirCovid, setExcluirCovid] = useState(true)
@@ -486,6 +622,11 @@ export function Predicciones() {
   const skipPatronesAutoRef = useRef(true)
 
   const chartLayoutCompact = useMediaQuery(`(max-width: ${CHART_COMPACT_MAX_PX}px)`)
+
+  const usaMediaMovil =
+    modeloPred === 'media_movil' ||
+    modeloCarga === 'media_movil' ||
+    modeloProp === 'media_movil'
   const prediccionesChartHeight = chartLayoutCompact ? 280 : 340
   const yAxisTickWidth = chartLayoutCompact ? 34 : 48
 
@@ -510,8 +651,9 @@ export function Predicciones() {
       comuna_id: comunaId || undefined,
       barrio_id: barrioId || undefined,
       clase_incidente_id: claseId || undefined,
+      ...(modoTerritorio === 'espacial' ? { territorio: 'espacial' } : {}),
     }),
-    [desde, hasta, comunaId, barrioId, claseId],
+    [desde, hasta, comunaId, barrioId, claseId, modoTerritorio],
   )
 
   const prediccionesQuery = useCallback(
@@ -520,6 +662,7 @@ export function Predicciones() {
       horizonte_meses: horizontePredicciones,
       modelo: modeloPred,
       variable: variablePred,
+      ...(ventanaMaQuery(modeloPred, ventanaMa)),
       ...(desglosePorClase && !claseId ? { desglose_clase: '1' } : {}),
       ...(excluirCovid ? { excluir_covid: '1' } : {}),
     }),
@@ -527,6 +670,7 @@ export function Predicciones() {
       filtrosQuery,
       horizontePredicciones,
       modeloPred,
+      ventanaMa,
       variablePred,
       desglosePorClase,
       claseId,
@@ -568,6 +712,7 @@ export function Predicciones() {
       ...filtrosQuery(),
       horizonte_meses: horizontePredicciones,
       modelo: modeloProp,
+      ...(ventanaMaQuery(modeloProp, ventanaMa)),
       ...(desgloseComunaProp && !comunaId ? { desglose_comuna: '1' } : {}),
       ...(excluirCovid ? { excluir_covid: '1' } : {}),
     }),
@@ -575,6 +720,7 @@ export function Predicciones() {
       filtrosQuery,
       horizontePredicciones,
       modeloProp,
+      ventanaMa,
       desgloseComunaProp,
       comunaId,
       excluirCovid,
@@ -588,9 +734,10 @@ export function Predicciones() {
       limite: 12,
       horizonte_meses: horizontePredicciones,
       modelo: modeloCarga,
+      ...(ventanaMaQuery(modeloCarga, ventanaMa)),
       ...(excluirCovid ? { excluir_covid: '1' } : {}),
     }),
-    [filtrosQuery, nivelCarga, horizontePredicciones, modeloCarga, excluirCovid],
+    [filtrosQuery, nivelCarga, horizontePredicciones, modeloCarga, ventanaMa, excluirCovid],
   )
 
   const cargaComparativaData = useMemo(
@@ -644,7 +791,7 @@ export function Predicciones() {
     }
     if (!proporcion) return
     void loadProporcion()
-  }, [modeloProp, desgloseComunaProp, loadProporcion])
+  }, [modeloProp, ventanaMa, desgloseComunaProp, loadProporcion])
 
   const loadCarga = useCallback(async () => {
     setLoadingCarga(true)
@@ -666,16 +813,17 @@ export function Predicciones() {
     }
     if (!cargaEsperada) return
     void loadCarga()
-  }, [nivelCarga, modeloCarga, horizontePredicciones, loadCarga])
+  }, [nivelCarga, modeloCarga, ventanaMa, horizontePredicciones, loadCarga])
 
   const patronesQuery = useCallback(
     () => ({
       ...filtrosQuery(),
       horizonte_meses: horizontePredicciones,
       modelo: modeloCarga,
+      ...(ventanaMaQuery(modeloCarga, ventanaMa)),
       ...(excluirCovid ? { excluir_covid: '1' } : {}),
     }),
-    [filtrosQuery, horizontePredicciones, modeloCarga, excluirCovid],
+    [filtrosQuery, horizontePredicciones, modeloCarga, ventanaMa, excluirCovid],
   )
 
   const loadPatrones = useCallback(async () => {
@@ -704,7 +852,7 @@ export function Predicciones() {
     }
     if (!predicciones) return
     void loadPatrones()
-  }, [horizontePredicciones, modeloCarga, loadPatrones, predicciones])
+  }, [horizontePredicciones, modeloCarga, ventanaMa, loadPatrones, predicciones])
 
   const applyPrediccionesBundle = useCallback((bundle) => {
     setPredicciones(bundle.predicciones)
@@ -844,11 +992,12 @@ export function Predicciones() {
       <header className="page-intro">
         <h1>Predicciones</h1>
         <p className="muted">
-          Proyección mensual (Fase A), prioridad y carga territorial (P05–P10), proporción de fatales (P07) y patrones
-          día×hora / día de semana (P12–P13): comparan el <strong>periodo seleccionado</strong> con la{' '}
-          <strong>proyección</strong> en el horizonte. El ranking de vías (P11) está en el{' '}
-          <Link to="/tablero">Tablero</Link>.
+          Proyecciones descriptivas con los mismos filtros del tablero: tendencia mensual de incidentes,
+          priorización territorial, carga esperada por comuna o barrio, proporción de víctimas fatales y patrones
+          por día de la semana y por hora. Cada bloque contrasta lo registrado en el{' '}
+          <strong>periodo seleccionado</strong> con la <strong>proyección</strong> hacia el horizonte que configure.
         </p>
+        <PrediccionesFiltrosGuia />
       </header>
 
       {loading && !predicciones && !err && <p className="muted">Cargando rango de fechas y serie…</p>}
@@ -935,6 +1084,13 @@ export function Predicciones() {
             </select>
           </label>
           <label className="filter-field">
+            Territorio (filtros)
+            <select value={modoTerritorio} onChange={(e) => setModoTerritorio(e.target.value)}>
+              <option value="registro">Registro Mede (default)</option>
+              <option value="espacial">Polígono PostGIS</option>
+            </select>
+          </label>
+          <label className="filter-field">
             Variable
             <select value={variablePred} onChange={(e) => setVariablePred(e.target.value)}>
               {VARIABLE_OPTS.map((o) => (
@@ -954,6 +1110,18 @@ export function Predicciones() {
               ))}
             </select>
           </label>
+          {usaMediaMovil ? (
+            <label className="filter-field">
+              Ventana MA
+              <select value={ventanaMa} onChange={(e) => setVentanaMa(Number(e.target.value))}>
+                {VENTANA_MA_OPTS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <label className="filter-field filter-field-checkbox">
             <input
               type="checkbox"
@@ -1023,7 +1191,7 @@ export function Predicciones() {
           )}
           {metaActiva.sin_modelo ? (
             <p className="muted small" role="status">
-              Hay menos de <strong>{minMesesModelo(metaActiva.modelo)} meses</strong> con datos en el rango; no se
+              Hay menos de <strong>{minMesesModelo(metaActiva.modelo, metaActiva.ventana_meses)} meses</strong> con datos en el rango; no se
               calcula proyección. Amplíe las fechas o verifique datos.
             </p>
           ) : (
@@ -1359,9 +1527,6 @@ export function Predicciones() {
           <strong>Vs. P05:</strong>{' '}
           {cargaEsperada?.meta?.diferencia_p05 ??
             'P05 mezcla historial y gravedad; P08 solo proyecta incidentes hacia adelante.'}
-          {' '}
-          El ranking de <strong>vías y puntos críticos (P11)</strong> está en el{' '}
-          <Link to="/tablero">Tablero</Link>.
         </p>
         <div className="predicciones-toolbar">
           <label>

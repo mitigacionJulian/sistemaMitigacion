@@ -9,6 +9,7 @@ from typing import Any
 from django.db import connection
 
 from .kpis import FiltrosKpi, _shift_year_back
+from .territorio_sql import append_filtros_territoriales, meta_filtros_dict, nota_modo_territorio
 
 _MESES_CORTO = (
     "ene",
@@ -63,15 +64,7 @@ def _query_agregado_por_mes(
     where = ["i.fecha_incidente >= %s", "i.fecha_incidente <= %s"]
     params: list[Any] = [inicio, fin]
 
-    if filtros.comuna_id is not None:
-        where.append("i.comuna_id = %s")
-        params.append(filtros.comuna_id)
-    if filtros.barrio_id is not None:
-        where.append("i.barrio_id = %s")
-        params.append(filtros.barrio_id)
-    if filtros.clase_incidente_id is not None:
-        where.append("i.clase_incidente_id = %s")
-        params.append(filtros.clase_incidente_id)
+    append_filtros_territoriales(where, params, filtros)
 
     wh = " AND ".join(where)
 
@@ -136,11 +129,8 @@ def build_evolucion_payload(
                 "Totales por mes natural dentro del rango seleccionado; la columna comparada usa el mismo mes "
                 "en el intervalo equivalente del año anterior (alineado con los KPIs)."
             ),
-            "filtros": {
-                "comuna_id": filtros.comuna_id,
-                "barrio_id": filtros.barrio_id,
-                "clase_incidente_id": filtros.clase_incidente_id,
-            },
+            "filtros": meta_filtros_dict(filtros),
+            "nota_territorio": nota_modo_territorio(filtros.modo_territorio),
         },
         "serie": serie,
     }

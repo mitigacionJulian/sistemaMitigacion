@@ -10,20 +10,19 @@ from typing import Any
 from django.db import connection
 
 from .kpis import FiltrosKpi
+from .territorio_sql import (
+    append_filtros_territoriales,
+    comuna_fk_col,
+    barrio_fk_col,
+    meta_filtros_dict,
+    nota_modo_territorio,
+)
 
 
 def _where_sql(filtros: FiltrosKpi) -> tuple[str, list[Any]]:
     where = ["i.fecha_incidente >= %s", "i.fecha_incidente <= %s"]
     params: list[Any] = []
-    if filtros.comuna_id is not None:
-        where.append("i.comuna_id = %s")
-        params.append(filtros.comuna_id)
-    if filtros.barrio_id is not None:
-        where.append("i.barrio_id = %s")
-        params.append(filtros.barrio_id)
-    if filtros.clase_incidente_id is not None:
-        where.append("i.clase_incidente_id = %s")
-        params.append(filtros.clase_incidente_id)
+    append_filtros_territoriales(where, params, filtros)
     return " AND ".join(where), params
 
 
@@ -60,6 +59,8 @@ def build_tops_payload(
     wh, base_params = _where_sql(filtros)
     params_base = [inicio, fin] + base_params
     total_v = _total_victimas(inicio, fin, filtros)
+    c_fk = comuna_fk_col(filtros.modo_territorio)
+    b_fk = barrio_fk_col(filtros.modo_territorio)
 
     def rows_sexo() -> list[dict[str, Any]]:
         sql = f"""
@@ -156,7 +157,7 @@ def build_tops_payload(
                COUNT(v.id)::bigint AS total
         FROM victima v
         INNER JOIN incidente i ON v.incidente_id = i.id
-        LEFT JOIN comuna co ON i.comuna_id = co.id
+        LEFT JOIN comuna co ON i.{c_fk} = co.id
         WHERE {wh}
         GROUP BY co.id, co.codigo, co.nombre
         ORDER BY total DESC
@@ -186,7 +187,7 @@ def build_tops_payload(
                COUNT(v.id)::bigint AS total
         FROM victima v
         INNER JOIN incidente i ON v.incidente_id = i.id
-        LEFT JOIN barrio b ON i.barrio_id = b.id
+        LEFT JOIN barrio b ON i.{b_fk} = b.id
         LEFT JOIN comuna co ON b.comuna_id = co.id
         WHERE {wh}
         GROUP BY b.id, b.codigo, b.nombre, co.nombre
@@ -234,11 +235,8 @@ def build_tops_payload(
             "fecha_fin": fin.isoformat(),
             "total_victimas_periodo": total_v,
             "limite": limite,
-            "filtros": {
-                "comuna_id": filtros.comuna_id,
-                "barrio_id": filtros.barrio_id,
-                "clase_incidente_id": filtros.clase_incidente_id,
-            },
+            "filtros": meta_filtros_dict(filtros),
+            "nota_territorio": nota_modo_territorio(filtros.modo_territorio),
             "nota": (
                 "Porcentajes respecto al total de víctimas en el periodo con los mismos filtros. "
                 "Una sola respuesta agrupa varios rankings; en pantalla suelen mostrarse como tablas separadas "

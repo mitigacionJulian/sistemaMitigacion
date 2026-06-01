@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 
 export function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  const from = location.state?.from
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
@@ -15,8 +17,14 @@ export function Login() {
     setError(null)
     setPending(true)
     try {
-      await login(username, password)
-      navigate('/tablero')
+      const u = await login(username, password)
+      if (from) {
+        navigate(from, { replace: true })
+      } else if (u?.perfil?.rol_codigo === 'analista') {
+        navigate('/predicciones', { replace: true })
+      } else {
+        navigate('/tablero', { replace: true })
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido')
     } finally {
@@ -27,9 +35,6 @@ export function Login() {
   return (
     <div className="auth-card">
       <h1>Iniciar sesión</h1>
-      <p className="muted">
-        Sesión con cookies (misma política que Django). Sin JWT en esta etapa.
-      </p>
       <form onSubmit={onSubmit} className="form">
         {error && <p className="form-error">{error}</p>}
         <label>
@@ -51,12 +56,14 @@ export function Login() {
             required
           />
         </label>
-        <button type="submit" className="btn btn-primary" disabled={pending}>
+        <button type="submit" className="btn btn-primary btn-block" disabled={pending}>
           {pending ? 'Ingresando…' : 'Ingresar'}
         </button>
       </form>
-      <p className="muted">
-        ¿No tienes cuenta? <Link to="/registro">Regístrate</Link>
+      <p className="auth-links muted small">
+        <Link to="/recuperar-clave">¿Olvidó su contraseña?</Link>
+        {' · '}
+        <Link to="/registro">Crear cuenta</Link>
       </p>
     </div>
   )

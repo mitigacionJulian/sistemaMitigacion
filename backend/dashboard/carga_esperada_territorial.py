@@ -10,8 +10,13 @@ from datetime import date
 from typing import Any, Literal
 
 from .kpis import FiltrosKpi
-from .predicciones_mensuales import _build_single
+from .predicciones_mensuales import (
+    MA_VENTANA_DEFAULT,
+    _build_single,
+    normalize_modelo_proyeccion,
+)
 from .prioridad_territorial import MIN_INCIDENTES_TERRITORIO, _query_totales_territorio
+from .territorio_sql import meta_filtros_dict, nota_modo_territorio
 
 NivelTerritorio = Literal["comuna", "barrio"]
 
@@ -33,15 +38,24 @@ def _carga_proyectada_territorio(
     horizonte: int,
     modelo: str,
     excluir_covid: bool,
+    ventana_ma: int = MA_VENTANA_DEFAULT,
 ) -> float | None:
     f = FiltrosKpi(
         comuna_id=territorio_id if nivel == "comuna" else filtros.comuna_id,
         barrio_id=territorio_id if nivel == "barrio" else None,
         clase_incidente_id=filtros.clase_incidente_id,
+        modo_territorio=filtros.modo_territorio,
     )
 
     bloque = _build_single(
-        inicio, fin, f, horizonte, modelo, "incidentes", excluir_covid
+        inicio,
+        fin,
+        f,
+        horizonte,
+        modelo,  # type: ignore[arg-type]
+        "incidentes",
+        excluir_covid,
+        ventana_ma=ventana_ma,
     )
     if bloque["meta"].get("sin_modelo"):
         return None
@@ -57,18 +71,20 @@ def build_carga_esperada_payload(
     modelo: str = "estacional",
     excluir_covid: bool = True,
     limite: int = 20,
+    ventana_ma: int = MA_VENTANA_DEFAULT,
 ) -> dict[str, Any]:
     filtros = filtros or FiltrosKpi()
     niv: NivelTerritorio = "barrio" if nivel == "barrio" else "comuna"
     hm = max(1, min(12, int(horizonte_meses)))
     limite = min(max(int(limite), 1), 50)
+    mod = normalize_modelo_proyeccion(modelo)
 
     totales = _query_totales_territorio(inicio, fin, filtros, niv)
     filas: list[dict[str, Any]] = []
 
     for tid, t in totales.items():
         carga = _carga_proyectada_territorio(
-            inicio, fin, filtros, niv, tid, hm, modelo, excluir_covid
+            inicio, fin, filtros, niv, tid, hm, mod, excluir_covid, ventana_ma
         )
         if carga is None:
             continue
@@ -93,10 +109,10 @@ def build_carga_esperada_payload(
                 "fecha_fin": fin.isoformat(),
                 "nivel": niv,
                 "sin_datos": True,
-                "modelo_proyeccion": modelo,
+                "modelo_proyeccion": mod,
                 "horizonte_meses": hm,
                 "limitaciones": _limitaciones(),
-                **_meta_carga_textos(modelo, hm, niv),
+                **_meta_carga_textos(mod, hm, niv, ventana_ma=ventana_ma),
             },
             "ranking": [],
         }
@@ -113,30 +129,30 @@ def build_carga_esperada_payload(
         row["categoria_esperada"] = _nivel_tercil(row["carga_proyectada_horizonte"], p33, p66)
         ranking.append(row)
 
-    textos = _meta_carga_textos(modelo, hm, niv, p33, p66)
-    return {
-        "meta": {
-            "fecha_inicio": inicio.isoformat(),
-            "fecha_fin": fin.isoformat(),
-            "nivel": niv,
-            "sin_datos": False,
-            "limite": limite,
-            "horizonte_meses": hm,
-            "modelo_proyeccion": modelo,
-            "excluir_covid": excluir_covid,
-            "umbrales_categoria": {
-                "alto": f"≥ {p66:.1f} incidentes proyectados",
-                "medio": f"{p33:.1f} – {p66:.1f}",
-                "bajo": f"< {p33:.1f}",
-            },
-            "limitaciones": _limitaciones(),
-            "filtros": {
-                "comuna_id": filtros.comuna_id,
-                "barrio_id": filtros.barrio_id,
-                "clase_incidente_id": filtros.clase_incidente_id,
-            },
-            **textos,
+    meta_out: dict[str, Any] = {
+        "fecha_inicio": inicio.isoformat(),
+        "fecha_fin": fin.isoformat(),
+        "nivel": niv,
+        "sin_datos": False,
+        "limite": limite,
+        "horizonte_meses": hm,
+        "modelo_proyeccion": mod,
+        "excluir_covid": excluir_covid,
+        "umbrales_categoria": {
+            "alto": f"≥ {p66:.1f} incidentes proyectados",
+            "medio": f"{p33:.1f} – {p66:.1f}",
+            "bajo": f"< {p33:.1f}",
         },
+        "limitaciones": _limitaciones(),
+        "filtros": meta_filtros_dict(filtros),
+        "nota_territorio": nota_modo_territorio(filtros.modo_territorio),
+        **_meta_carga_textos(mod, hm, niv, p33, p66, ventana_ma=ventana_ma),
+    }
+    if mod == "media_movil":
+        meta_out["ventana_meses"] = ventana_ma
+
+    return {
+        "meta": meta_out,
         "ranking": ranking,
     }
 
@@ -155,9 +171,13 @@ def _meta_carga_textos(
     niv: NivelTerritorio,
     p33: float | None = None,
     p66: float | None = None,
+    ventana_ma: int = MA_VENTANA_DEFAULT,
 ) -> dict[str, Any]:
+    modelo_txt = modelo
+    if modelo == "media_movil":
+        modelo_txt = f"media móvil (ventana {ventana_ma} meses)"
     metodo = (
-        f"Por cada {niv}, se proyectan incidentes mes a mes ({modelo}) y se suman los próximos "
+        f"Por cada {niv}, se proyectan incidentes mes a mes ({modelo_txt}) y se suman los próximos "
         f"{hm} mes(es). La categoría alto/medio/bajo compara ese total entre territorios del ranking "
         "(terciles, no umbrales fijos de la ciudad)."
     )

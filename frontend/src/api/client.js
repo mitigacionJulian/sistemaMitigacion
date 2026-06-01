@@ -1,22 +1,48 @@
+import { decodeChoroplethPayload } from '../map/choroplethDecode.js'
+import {
+  clearTokens,
+  getAccessToken,
+  getRefreshToken,
+  isIdleExpired,
+  setTokens,
+  touchActivity,
+} from '../auth/tokenStorage.js'
+
 const API_PREFIX = '/api'
 
-function getCookie(name) {
-  const m = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'))
-  return m ? decodeURIComponent(m[2]) : null
-}
+let refreshInFlight = null
 
-let csrfReady = null
-
-export function ensureCsrf() {
-  if (!csrfReady) {
-    csrfReady = fetch(`${API_PREFIX}/auth/csrf/`, {
-      credentials: 'include',
-    }).then(() => undefined)
+async function refreshAccessToken() {
+  const refresh = getRefreshToken()
+  if (!refresh) return false
+  if (!refreshInFlight) {
+    refreshInFlight = fetch(`${API_PREFIX}/auth/refresh/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh }),
+    })
+      .then(async (r) => {
+        if (!r.ok) return false
+        const body = await r.json()
+        if (body.access) {
+          setTokens({ access: body.access, refresh: body.refresh || refresh })
+          return true
+        }
+        return false
+      })
+      .finally(() => {
+        refreshInFlight = null
+      })
   }
-  return csrfReady
+  return refreshInFlight
 }
 
 export async function apiFetch(path, options = {}) {
+  if (isIdleExpired()) {
+    clearTokens()
+    throw new Error('Sesión cerrada por inactividad (15 min).')
+  }
+
   const method = (options.method || 'GET').toUpperCase()
   const headers = new Headers(options.headers)
 
@@ -24,57 +50,130 @@ export async function apiFetch(path, options = {}) {
     headers.set('Content-Type', 'application/json')
   }
 
-  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-    await ensureCsrf()
-    const token = getCookie('csrftoken')
-    if (token) headers.set('X-CSRFToken', token)
+  const access = getAccessToken()
+  if (access) {
+    headers.set('Authorization', `Bearer ${access}`)
+    touchActivity()
   }
 
-  return fetch(`${API_PREFIX}${path}`, {
+  let r = await fetch(`${API_PREFIX}${path}`, {
     ...options,
-    credentials: 'include',
+    credentials: 'omit',
     headers,
     ...(method === 'GET' ? { cache: 'no-store' } : {}),
   })
+
+  if (r.status === 401 && getRefreshToken()) {
+    const ok = await refreshAccessToken()
+    if (ok) {
+      headers.set('Authorization', `Bearer ${getAccessToken()}`)
+      r = await fetch(`${API_PREFIX}${path}`, {
+        ...options,
+        credentials: 'omit',
+        headers,
+        ...(method === 'GET' ? { cache: 'no-store' } : {}),
+      })
+    }
+  }
+
+  return r
 }
 
 export async function fetchMe() {
+  const access = getAccessToken()
+  if (!access || isIdleExpired()) {
+    clearTokens()
+    return null
+  }
   const r = await apiFetch('/auth/me/')
-  if (r.status === 403 || r.status === 401) return null
+  if (r.status === 403 || r.status === 401) {
+    clearTokens()
+    return null
+  }
   if (!r.ok) throw new Error('No se pudo obtener la sesión')
   return r.json()
 }
 
 export async function login(username, password) {
-  const r = await apiFetch('/auth/login/', {
+  const r = await fetch(`${API_PREFIX}/auth/login/`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
   })
   if (!r.ok) {
     const err = await r.json().catch(() => ({}))
     throw new Error(err.detail || 'Error al iniciar sesión')
   }
-  return r.json()
+  const data = await r.json()
+  setTokens({ access: data.access, refresh: data.refresh })
+  return data.user
 }
 
 export async function logout() {
-  const r = await apiFetch('/auth/logout/', { method: 'POST' })
-  if (!r.ok && r.status !== 204) throw new Error('Error al cerrar sesión')
-  csrfReady = null
+  const access = getAccessToken()
+  if (access) {
+    try {
+      await apiFetch('/auth/logout/', { method: 'POST' })
+    } catch {
+      /* ignore */
+    }
+  }
+  clearTokens()
 }
 
 export async function register(payload) {
-  const r = await apiFetch('/auth/register/', {
+  const r = await fetch(`${API_PREFIX}/auth/register/`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
   if (!r.ok) {
     const err = await r.json().catch(() => ({}))
     const msg =
-      typeof err === 'object' && err && 'detail' in err ? String(err.detail) : 'Error al registrar'
-    throw new Error(msg)
+      typeof err === 'object' && err && 'detail' in err ? String(err.detail) : formatFieldErrors(err)
+    throw new Error(msg || 'Error al registrar')
   }
-  return r.json()
+  const data = await r.json()
+  const tokens = data.tokens || { access: data.access, refresh: data.refresh }
+  setTokens(tokens)
+  const { tokens: _t, access: _a, refresh: _r, ...user } = data
+  return user
+}
+
+function formatFieldErrors(err) {
+  if (!err || typeof err !== 'object') return null
+  const parts = []
+  for (const [k, v] of Object.entries(err)) {
+    if (Array.isArray(v)) parts.push(`${k}: ${v.join(' ')}`)
+    else if (typeof v === 'string') parts.push(v)
+  }
+  return parts.length ? parts.join(' · ') : null
+}
+
+export async function requestPasswordReset(payload) {
+  const r = await fetch(`${API_PREFIX}/auth/password-reset/request/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const body = await r.json().catch(() => ({}))
+  if (!r.ok) {
+    throw new Error(body.detail || formatFieldErrors(body) || 'No se pudo solicitar recuperación')
+  }
+  return body
+}
+
+export async function confirmPasswordReset(payload) {
+  const r = await fetch(`${API_PREFIX}/auth/password-reset/confirm/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const body = await r.json().catch(() => ({}))
+  if (!r.ok) {
+    throw new Error(body.detail || formatFieldErrors(body) || 'No se pudo restablecer la contraseña')
+  }
+  return body
 }
 
 export async function fetchDashboardMock() {
@@ -113,6 +212,68 @@ export async function fetchDashboardRangoFechas() {
   return body
 }
 
+const PUNTOS_WORKER_THRESHOLD = 2000
+let expandWorker = null
+let expandReqId = 0
+
+function expandPuntosMapaSync(data) {
+  if (!data?.puntos?.length || data.meta?.formato_puntos !== 'compacto') return data
+  const cols = data.meta.columnas_puntos || [
+    'id',
+    'latitud',
+    'longitud',
+    'radicado',
+    'fecha_incidente',
+    'clase_incidente',
+  ]
+  const idx = Object.fromEntries(cols.map((c, i) => [c, i]))
+  return {
+    ...data,
+    puntos: data.puntos.map((row) => ({
+      id: row[idx.id],
+      latitud: row[idx.latitud],
+      longitud: row[idx.longitud],
+      radicado: row[idx.radicado],
+      fecha_incidente: row[idx.fecha_incidente],
+      clase_incidente: row[idx.clase_incidente] ?? '',
+    })),
+  }
+}
+
+function getExpandWorker() {
+  if (!expandWorker) {
+    expandWorker = new Worker(new URL('../workers/expandPuntosMapa.worker.js', import.meta.url), {
+      type: 'module',
+    })
+  }
+  return expandWorker
+}
+
+function expandPuntosMapaAsync(data) {
+  return new Promise((resolve, reject) => {
+    const worker = getExpandWorker()
+    const id = ++expandReqId
+    const onMessage = (ev) => {
+      if (ev.data?.id !== id) return
+      worker.removeEventListener('message', onMessage)
+      if (ev.data.error) reject(new Error(ev.data.error))
+      else resolve(ev.data.data)
+    }
+    worker.addEventListener('message', onMessage)
+    worker.postMessage({ id, data })
+  })
+}
+
+async function expandPuntosMapa(data) {
+  if (!data?.puntos?.length || data.meta?.formato_puntos !== 'compacto') return data
+  if (data.puntos.length < PUNTOS_WORKER_THRESHOLD) return expandPuntosMapaSync(data)
+  try {
+    return await expandPuntosMapaAsync(data)
+  } catch {
+    return expandPuntosMapaSync(data)
+  }
+}
+
 export async function fetchDashboardIncidentesMapa(params = {}) {
   const r = await apiFetch(`/dashboard/incidentes-mapa/${buildQuery(params)}`)
   const body = await r.json().catch(() => ({}))
@@ -120,6 +281,41 @@ export async function fetchDashboardIncidentesMapa(params = {}) {
     const msg = detailFromBody(
       body,
       `No se pudo cargar el mapa de incidentes (${r.status}).`,
+    )
+    throw new Error(msg)
+  }
+  return expandPuntosMapa(body)
+}
+
+export async function fetchDashboardMapaDetalle(params = {}) {
+  const q = buildQuery(params)
+  const path = q ? `/dashboard/mapa-detalle${q}` : '/dashboard/mapa-detalle/'
+  const r = await apiFetch(path)
+  const body = await r.json().catch(() => ({}))
+  if (!r.ok) {
+    const msg = detailFromBody(body, `No se pudo cargar el mapa detalle (${r.status}).`)
+    throw new Error(msg)
+  }
+  const choropleth = decodeChoroplethPayload(body.choropleth)
+  const puntosPayload = await expandPuntosMapa({
+    meta: body.meta || body.puntos_meta,
+    puntos: body.puntos,
+  })
+  return {
+    meta: body.meta,
+    choropleth,
+    puntos: puntosPayload.puntos,
+    puntos_meta: puntosPayload.meta || body.puntos_meta,
+  }
+}
+
+export async function fetchDashboardHotspotsCuadricula(params = {}) {
+  const r = await apiFetch(`/dashboard/hotspots-cuadricula/${buildQuery(params)}`)
+  const body = await r.json().catch(() => ({}))
+  if (!r.ok) {
+    const msg = detailFromBody(
+      body,
+      `No se pudo cargar la cuadrícula de hotspots (${r.status}).`,
     )
     throw new Error(msg)
   }
@@ -198,19 +394,6 @@ export async function fetchDashboardCargaEsperadaTerritorial(params = {}) {
     const msg = detailFromBody(
       body,
       `No se pudo cargar la carga esperada (${r.status}).`,
-    )
-    throw new Error(msg)
-  }
-  return body
-}
-
-export async function fetchDashboardCargaEsperadaEspacial(params = {}) {
-  const r = await apiFetch(`/dashboard/carga-esperada-espacial/${buildQuery(params)}`)
-  const body = await r.json().catch(() => ({}))
-  if (!r.ok) {
-    const msg = detailFromBody(
-      body,
-      `No se pudo cargar la carga espacial (fase C) (${r.status}).`,
     )
     throw new Error(msg)
   }
@@ -309,4 +492,68 @@ export async function fetchDashboardBarrios(comunaId) {
   const r = await apiFetch(`/dashboard/barrios/${buildQuery({ comuna_id: comunaId })}`)
   if (!r.ok) throw new Error('No se pudieron cargar los barrios')
   return r.json()
+}
+
+export async function fetchDashboardCalidadTerritorio(params = {}) {
+  const r = await apiFetch(`/dashboard/calidad-territorio/${buildQuery(params)}`)
+  const body = await r.json().catch(() => ({}))
+  if (!r.ok) {
+    const msg = detailFromBody(
+      body,
+      `No se pudo cargar la calidad territorial G03 (${r.status}).`,
+    )
+    throw new Error(msg)
+  }
+  return body
+}
+
+export async function fetchDashboardDensidadTerritorial(params = {}) {
+  const r = await apiFetch(`/dashboard/densidad-territorial/${buildQuery(params)}`)
+  const body = await r.json().catch(() => ({}))
+  if (!r.ok) {
+    const msg = detailFromBody(
+      body,
+      `No se pudo cargar densidad territorial G01 (${r.status}).`,
+    )
+    throw new Error(msg)
+  }
+  return body
+}
+
+export async function fetchDashboardHotspotsRanking(params = {}) {
+  const r = await apiFetch(`/dashboard/hotspots-ranking/${buildQuery(params)}`)
+  const body = await r.json().catch(() => ({}))
+  if (!r.ok) {
+    const msg = detailFromBody(
+      body,
+      `No se pudo cargar ranking de celdas G06 (${r.status}).`,
+    )
+    throw new Error(msg)
+  }
+  return body
+}
+
+export async function fetchDashboardChoroplethTerritorial(params = {}) {
+  const q = buildQuery(params)
+  const path = q ? `/dashboard/choropleth-territorial${q}` : '/dashboard/choropleth-territorial/'
+  const r = await apiFetch(path)
+  const body = await r.json().catch(() => ({}))
+  if (!r.ok) {
+    const msg = detailFromBody(
+      body,
+      `No se pudo cargar la coroplética territorial (${r.status}).`,
+    )
+    throw new Error(msg)
+  }
+  return decodeChoroplethPayload(body)
+}
+
+export async function fetchDashboardComunasGeojson(params = {}) {
+  const r = await apiFetch(`/dashboard/comunas-geojson/${buildQuery(params)}`)
+  const body = await r.json().catch(() => ({}))
+  if (!r.ok) {
+    const msg = detailFromBody(body, `No se pudieron cargar límites comunales (${r.status}).`)
+    throw new Error(msg)
+  }
+  return body
 }

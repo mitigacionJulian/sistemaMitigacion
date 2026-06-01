@@ -11,6 +11,10 @@
 --   - File: .../salida/Mede_Victimas_inci_depurado.csv
 --   - Format: csv | Header: Yes | Encoding: UTF8 | Delimiter: ,
 -- PASO 3: volver a ejecutar este archivo completo (es idempotente)
+--
+-- PostGIS F2: al insertar/actualizar lat/lon, los triggers rellenan incidente.ubicacion
+-- (002) y comuna_id_espacial / barrio_id_espacial (005). Tras cargar poligonos F1.5:
+--   python manage.py actualizar_territorio_espacial
 -- =====================================================
 
 BEGIN;
@@ -302,7 +306,17 @@ SELECT
   x.barrio_id
 FROM x
 WHERE x.fecha_d IS NOT NULL AND x.hora_t IS NOT NULL
-ON CONFLICT (radicado) DO NOTHING;
+ON CONFLICT (radicado) DO UPDATE SET
+  fecha_incidente = EXCLUDED.fecha_incidente,
+  hora_incidente = EXCLUDED.hora_incidente,
+  fecha_hora_incidente = EXCLUDED.fecha_hora_incidente,
+  clase_incidente_id = EXCLUDED.clase_incidente_id,
+  direccion_incidente = EXCLUDED.direccion_incidente,
+  latitud = EXCLUDED.latitud,
+  longitud = EXCLUDED.longitud,
+  comuna_id = EXCLUDED.comuna_id,
+  barrio_id = EXCLUDED.barrio_id,
+  updated_at = CURRENT_TIMESTAMP;
 
 -- -----------------------------
 -- D) Víctimas (idempotente por source_key)

@@ -66,6 +66,39 @@ urlpatterns = [
         name="dashboard-incidentes-mapa",
     ),
     path(
+        "dashboard/hotspots-cuadricula/",
+        views.dashboard_hotspots_cuadricula_view,
+        name="dashboard-hotspots-cuadricula",
+    ),
+    path(
+        "dashboard/hotspots-ranking/",
+        views.dashboard_hotspots_ranking_view,
+        name="dashboard-hotspots-ranking",
+    ),
+    path(
+        "dashboard/densidad-territorial/",
+        views.dashboard_densidad_territorial_view,
+        name="dashboard-densidad-territorial",
+    ),
+    path(
+        "dashboard/mapa-detalle/",
+        views.dashboard_mapa_detalle_view,
+        name="dashboard-mapa-detalle",
+    ),
+    path(
+        "dashboard/mapa-detalle",
+        views.dashboard_mapa_detalle_view,
+    ),
+    path(
+        "dashboard/choropleth-territorial/",
+        views.dashboard_choropleth_territorial_view,
+        name="dashboard-choropleth-territorial",
+    ),
+    path(
+        "dashboard/choropleth-territorial",
+        views.dashboard_choropleth_territorial_view,
+    ),
+    path(
         "dashboard/distribucion-gravedad/",
         views.dashboard_distribucion_gravedad_view,
         name="dashboard-distribucion-gravedad",
@@ -78,6 +111,16 @@ urlpatterns = [
     path("dashboard/tops/", views.dashboard_tops_view, name="dashboard-tops"),
     # Sin barra final (algunos clientes/proxies la omiten antes del query string)
     path("dashboard/tops", views.dashboard_tops_view),
+    path(
+        "dashboard/calidad-territorio/",
+        views.dashboard_calidad_territorio_view,
+        name="dashboard-calidad-territorio",
+    ),
     path("dashboard/catalogos/", views.dashboard_catalogos_view, name="dashboard-catalogos"),
     path("dashboard/barrios/", views.dashboard_barrios_view, name="dashboard-barrios"),
+    path(
+        "dashboard/comunas-geojson/",
+        views.dashboard_comunas_geojson_view,
+        name="dashboard-comunas-geojson",
+    ),
 ]

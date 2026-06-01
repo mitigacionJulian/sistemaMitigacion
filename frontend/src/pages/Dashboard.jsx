@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import {
   Bar,
   BarChart,
@@ -15,7 +15,6 @@ import {
 import {
   fetchDashboardBarrios,
   fetchDashboardCatalogos,
-  fetchDashboardCargaEsperadaEspacial,
   fetchDashboardEvolucionMensual,
   fetchDashboardDistribucionClaseIncidente,
   fetchDashboardKpis,
@@ -113,6 +112,52 @@ function KpiCard({ label, value, sub, variacionPct, formatValue }) {
   )
 }
 
+function TableroFiltrosGuia() {
+  return (
+    <details className="prioridad-ayuda-details page-intro-guide">
+      <summary>Guía para configurar los filtros</summary>
+      <div className="page-intro-guide-body muted small">
+        <p>
+          Los filtros del panel inferior aplican a <strong>todos</strong> los indicadores de esta página. Tras cambiar
+          valores, pulse <strong>Actualizar</strong> para recalcular.
+        </p>
+        <ul>
+          <li>
+            <strong>Desde / Hasta:</strong> define el <strong>periodo actual</strong>. Por defecto se carga el{' '}
+            <strong>último año con registros</strong> en base (aprox. 2014–2021). Los KPIs y gráficos comparativos
+            usan el <strong>mismo intervalo de calendario un año antes</strong> (ej. ene–sep 2021 vs ene–sep 2020).
+          </li>
+          <li>
+            <strong>Comuna, barrio y clase:</strong> acotan el análisis. Deje «Todas» / «Todos» para la ciudad
+            completa. El barrio solo se habilita tras elegir comuna.
+          </li>
+          <li>
+            <strong>Territorio:</strong> <em>Registro Mede</em> filtra por comuna/barrio del expediente;{' '}
+            <em>Polígono PostGIS</em> usa la ubicación espacial del punto en el mapa.
+          </li>
+          <li>
+            <strong>Qué actualiza cada bloque:</strong> tarjetas KPI (totales y variación %), tabla resumen, evolución
+            mensual, concentración por día de la semana, matriz día×hora, distribución por clase de incidente y
+            rankings de víctimas (sexo, edad, condición, comuna, barrio).
+          </li>
+          <li>
+            <strong>Matriz día×hora:</strong> en pantallas estrechas se muestran gráficos resumidos por hora; la matriz
+            completa aparece a partir de ~900 px de ancho.
+          </li>
+          <li>
+            <strong>Proyecciones futuras:</strong> tendencias y escenarios proyectados están en{' '}
+            <a href="/predicciones">Predicciones</a>, con los mismos filtros de periodo y territorio.
+          </li>
+        </ul>
+        <p>
+          Si un bloque queda vacío, amplíe fechas o quite filtros restrictivos. Las variaciones % requieren datos en el
+          periodo anterior equivalente; si el denominador es cero, verá «sin variación %».
+        </p>
+      </div>
+    </details>
+  )
+}
+
 export function Dashboard() {
   const [catalogos, setCatalogos] = useState({ comunas: [], clases_incidente: [] })
   const [barrios, setBarrios] = useState([])
@@ -124,6 +169,7 @@ export function Dashboard() {
   const [comunaId, setComunaId] = useState('')
   const [barrioId, setBarrioId] = useState('')
   const [claseId, setClaseId] = useState('')
+  const [modoTerritorio, setModoTerritorio] = useState('registro')
 
   const [data, setData] = useState(null)
   const [evolucion, setEvolucion] = useState(null)
@@ -131,13 +177,8 @@ export function Dashboard() {
   const [matrizDiaHora, setMatrizDiaHora] = useState(null)
   const [tops, setTops] = useState(null)
   const [claseIncidente, setClaseIncidente] = useState(null)
-  const [cargaInfra, setCargaInfra] = useState(null)
-  const [tipoInfra, setTipoInfra] = useState('ranking_via')
-  const [horizonteInfra, setHorizonteInfra] = useState(3)
-  const [loadingInfra, setLoadingInfra] = useState(false)
   const [err, setErr] = useState(null)
   const [loading, setLoading] = useState(true)
-  const skipInfraAutoRef = useRef(true)
 
   const showMatrixHeatmaps = useMediaQuery(`(min-width: ${MATRIX_BREAKPOINT_PX}px)`)
   const chartLayoutCompact = useMediaQuery(`(max-width: ${CHART_COMPACT_MAX_PX}px)`)
@@ -188,57 +229,17 @@ export function Dashboard() {
       comuna_id: comunaId || undefined,
       barrio_id: barrioId || undefined,
       clase_incidente_id: claseId || undefined,
+      ...(modoTerritorio === 'espacial' ? { territorio: 'espacial' } : {}),
     }),
-    [desde, hasta, comunaId, barrioId, claseId],
+    [desde, hasta, comunaId, barrioId, claseId, modoTerritorio],
   )
-
-  const infraQuery = useCallback(
-    () => ({
-      ...filtrosQuery(),
-      tipo: tipoInfra,
-      limite: 12,
-      horizonte_meses: horizonteInfra,
-      modelo: 'estacional',
-      excluir_covid: '1',
-    }),
-    [filtrosQuery, tipoInfra, horizonteInfra],
-  )
-
-  const loadCargaInfra = useCallback(async () => {
-    setLoadingInfra(true)
-    try {
-      const payload = await fetchDashboardCargaEsperadaEspacial(infraQuery())
-      setCargaInfra(payload)
-    } catch {
-      setCargaInfra(null)
-    } finally {
-      setLoadingInfra(false)
-    }
-  }, [infraQuery])
-
-  useEffect(() => {
-    if (skipInfraAutoRef.current) {
-      skipInfraAutoRef.current = false
-      return
-    }
-    if (!cargaInfra && !data) return
-    void loadCargaInfra()
-  }, [tipoInfra, horizonteInfra, loadCargaInfra])
 
   const loadDashboard = useCallback(async () => {
     setLoading(true)
     setErr(null)
     try {
       const q = { ...filtrosQuery(), top_n: 10 }
-      const infraQ = {
-        ...filtrosQuery(),
-        tipo: tipoInfra,
-        limite: 12,
-        horizonte_meses: horizonteInfra,
-        modelo: 'estacional',
-        excluir_covid: '1',
-      }
-      const [kpiPayload, evoPayload, diaPayload, matrizPayload, topsPayload, clasePayload, infraPayload] =
+      const [kpiPayload, evoPayload, diaPayload, matrizPayload, topsPayload, clasePayload] =
         await Promise.all([
           fetchDashboardKpis(q),
           fetchDashboardEvolucionMensual(q),
@@ -246,7 +247,6 @@ export function Dashboard() {
           fetchDashboardMatrizDiaHora(q),
           fetchDashboardTops(q),
           fetchDashboardDistribucionClaseIncidente(q),
-          fetchDashboardCargaEsperadaEspacial(infraQ),
         ])
       setData(kpiPayload)
       setEvolucion(evoPayload)
@@ -254,7 +254,6 @@ export function Dashboard() {
       setMatrizDiaHora(matrizPayload)
       setTops(topsPayload)
       setClaseIncidente(clasePayload)
-      setCargaInfra(infraPayload)
     } catch (e) {
       setData(null)
       setEvolucion(null)
@@ -262,12 +261,11 @@ export function Dashboard() {
       setMatrizDiaHora(null)
       setTops(null)
       setClaseIncidente(null)
-      setCargaInfra(null)
       setErr(e instanceof Error ? e.message : 'Error al cargar el tablero')
     } finally {
       setLoading(false)
     }
-  }, [filtrosQuery, tipoInfra, horizonteInfra])
+  }, [filtrosQuery])
 
   useEffect(() => {
     void fetchDashboardCatalogos()
@@ -308,16 +306,7 @@ export function Dashboard() {
         setHasta(rango.default_hasta)
 
         const q = { desde: rango.default_desde, hasta: rango.default_hasta, top_n: 10 }
-        const infraQ = {
-          desde: rango.default_desde,
-          hasta: rango.default_hasta,
-          tipo: 'ranking_via',
-          limite: 12,
-          horizonte_meses: 3,
-          modelo: 'estacional',
-          excluir_covid: '1',
-        }
-        const [kpiPayload, evoPayload, diaPayload, matrizPayload, topsPayload, clasePayload, infraPayload] =
+        const [kpiPayload, evoPayload, diaPayload, matrizPayload, topsPayload, clasePayload] =
           await Promise.all([
             fetchDashboardKpis(q),
             fetchDashboardEvolucionMensual(q),
@@ -325,7 +314,6 @@ export function Dashboard() {
             fetchDashboardMatrizDiaHora(q),
             fetchDashboardTops(q),
             fetchDashboardDistribucionClaseIncidente(q),
-            fetchDashboardCargaEsperadaEspacial(infraQ),
           ])
         if (!alive) return
         setData(kpiPayload)
@@ -334,7 +322,6 @@ export function Dashboard() {
         setMatrizDiaHora(matrizPayload)
         setTops(topsPayload)
         setClaseIncidente(clasePayload)
-        setCargaInfra(infraPayload)
       } catch (e) {
         if (!alive) return
         setData(null)
@@ -343,7 +330,6 @@ export function Dashboard() {
         setMatrizDiaHora(null)
         setTops(null)
         setClaseIncidente(null)
-        setCargaInfra(null)
         setErr(e instanceof Error ? e.message : 'Error al cargar indicadores')
       } finally {
         if (alive) setLoading(false)
@@ -457,6 +443,16 @@ export function Dashboard() {
     <div className="dashboard">
       {loading && !data && !err && <p className="muted">Cargando rango de fechas e indicadores…</p>}
 
+      <header className="page-intro">
+        <h1>Tablero de indicadores</h1>
+        <p className="muted">
+          Resumen histórico del periodo filtrado: KPIs con variación respecto al año anterior, evolución mensual,
+          concentración por día de la semana, matriz día×hora, distribución por clase de incidente y rankings de
+          víctimas.
+        </p>
+        <TableroFiltrosGuia />
+      </header>
+
       <section className="panel filter-panel">
         <h2>Filtros del periodo y territorio</h2>
         <p className="muted small filter-help">
@@ -533,6 +529,13 @@ export function Dashboard() {
               ))}
             </select>
           </label>
+          <label className="filter-field">
+            Territorio (filtros)
+            <select value={modoTerritorio} onChange={(e) => setModoTerritorio(e.target.value)}>
+              <option value="registro">Registro Mede (default)</option>
+              <option value="espacial">Polígono PostGIS</option>
+            </select>
+          </label>
           <div className="filter-actions">
             <button type="button" className="btn btn-primary" onClick={() => void loadDashboard()} disabled={loading}>
               {loading ? 'Actualizando…' : 'Actualizar'}
@@ -545,37 +548,6 @@ export function Dashboard() {
 
       {meta && kA && (
         <>
-          <div className="banner-live">
-            {rangoMeta?.fecha_minima && rangoMeta?.fecha_maxima && (
-              <p className="small muted" style={{ marginBottom: '0.5rem' }}>
-                Registros en base (global): {formatDateEs(rangoMeta.fecha_minima)} —{' '}
-                {formatDateEs(rangoMeta.fecha_maxima)}
-                {rangoMeta.ultimo_anio_con_datos != null && (
-                  <>
-                    {' '}
-                    Â· Año más reciente con datos: <strong>{rangoMeta.ultimo_anio_con_datos}</strong>
-                  </>
-                )}
-              </p>
-            )}
-            <p>
-              <strong>Rango de fechas (periodo actual):</strong> {formatDateEs(meta.fecha_inicio)} —{' '}
-              {formatDateEs(meta.fecha_fin)} ({kA.dias_en_periodo} días).
-            </p>
-            <p>
-              <strong>Comparación:</strong> mismo intervalo en el año anterior ({formatDateEs(meta.fecha_inicio_anterior)}{' '}
-              — {formatDateEs(meta.fecha_fin_anterior)}).
-            </p>
-            {(meta.filtros?.comuna_id != null ||
-              meta.filtros?.barrio_id != null ||
-              meta.filtros?.clase_incidente_id != null) && (
-              <p className="small muted">
-                Filtros en esta consulta: comuna id {meta.filtros.comuna_id ?? '—'}, barrio id{' '}
-                {meta.filtros.barrio_id ?? '—'}, clase id {meta.filtros.clase_incidente_id ?? '—'}.
-              </p>
-            )}
-          </div>
-
           <section className="kpi-row">
             <KpiCard
               label="Total incidentes"
@@ -597,9 +569,8 @@ export function Dashboard() {
               value={kA.tasa_incidentes_por_dia}
               variacionPct={cmp?.tasa_incidentes_por_dia?.variacion_pct}
               formatValue={(v) =>
-                Number(v).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+                Number(v).toLocaleString('es-CO', { maximumFractionDigits: 0 })
               }
-              sub={`${kA.total_incidentes.toLocaleString('es-CO')} incidentes Ã· ${kA.dias_en_periodo} días`}
             />
           </section>
 
@@ -804,9 +775,9 @@ export function Dashboard() {
                 <a href="/predicciones">Predicciones</a>.
               </p>
               <div className="risk-legend">
-                <span className="risk-chip risk-chip-alto">Carga alta</span>
-                <span className="risk-chip risk-chip-medio">Carga media</span>
-                <span className="risk-chip risk-chip-bajo">Carga baja</span>
+                <span className="risk-chip risk-chip-alto">Alto: ratio ≥ 1,45</span>
+                <span className="risk-chip risk-chip-medio">Medio: ratio ≥ 1,12</span>
+                <span className="risk-chip risk-chip-bajo">Bajo: ratio &lt; 1,12</span>
               </div>
               <div className="chart-box chart-box-tall">
                 <ResponsiveContainer width="100%" height={barChartCompareHeight}>
@@ -937,24 +908,6 @@ export function Dashboard() {
                   </>
                 )}
               </p>
-              {showMatrixHeatmaps && matrizDiaHora?.serie?.length > 0 && (
-                <div className="matrix-heatmap-reading" role="note">
-                  <strong className="matrix-heatmap-reading-title">Cómo leer las tonalidades</strong>
-                  <ul className="matrix-heatmap-reading-list muted small">
-                    <li>
-                      <strong>Periodo actual</strong> y <strong>año anterior</strong>: color verde más intenso = más
-                      incidentes en esa intersección día de la semana × hora. Fondo casi blanco = pocos o ningún
-                      incidente. La escala de oscuridad es <strong>independiente en cada matriz</strong> (comparar
-                      patrones, no el tono exacto entre un panel y otro).
-                    </li>
-                    <li>
-                      <strong>Diferencia (actual − anterior)</strong>: rojo = subieron los incidentes respecto al año
-                      anterior en esa celda; verde = bajaron; blanco o gris muy claro = sin cambio o cambio muy pequeño
-                      frente al valor absoluto máximo de diferencia en el periodo.
-                    </li>
-                  </ul>
-                </div>
-              )}
               {(() => {
                 const gridAct = buildHeatmapGrid('total_incidentes_actual')
                 const gridAnt = buildHeatmapGrid('total_incidentes_anterior')
@@ -1229,116 +1182,16 @@ export function Dashboard() {
             </section>
           )}
 
-          <section className="panel carga-infra-panel">
-            <h2>
-              Proyección por vía y punto crítico (P11)
-              {loadingInfra && <span className="muted small"> — actualizando…</span>}
-            </h2>
-            <p className="muted small">
-              <strong>Qué mide:</strong>{' '}
-              {cargaInfra?.meta?.que_mide ??
-                'Carga esperada de incidentes en el horizonte de predicción, por vía o punto crítico con serie suficiente.'}
-            </p>
-            {cargaInfra?.meta?.diferencia_p08 && (
-              <p className="muted small">
-                <strong>Vs. comparación territorial (Predicciones):</strong> {cargaInfra.meta.diferencia_p08}
-              </p>
-            )}
-            <div className="predicciones-toolbar dashboard-infra-toolbar">
-              <label>
-                Ranking
-                <select
-                  className="predicciones-select"
-                  value={tipoInfra}
-                  onChange={(e) => setTipoInfra(e.target.value)}
-                  disabled={loadingInfra}
-                >
-                  <option value="ranking_via">Vías</option>
-                  <option value="ranking_punto">Puntos críticos</option>
-                </select>
-              </label>
-              <label>
-                Horizonte (meses)
-                <select
-                  className="predicciones-select"
-                  value={horizonteInfra}
-                  onChange={(e) => setHorizonteInfra(Number(e.target.value))}
-                  disabled={loadingInfra}
-                >
-                  <option value={1}>1</option>
-                  <option value={3}>3</option>
-                  <option value={6}>6</option>
-                  <option value={12}>12</option>
-                </select>
-              </label>
-            </div>
-            <p className="muted small">
-              Cambios de <strong>ranking</strong> u <strong>horizonte</strong> actualizan sin pulsar Actualizar.
-              Fechas y filtros del tablero sí requieren Actualizar.
-            </p>
-            {cargaInfra?.meta?.interpretacion && (
-              <p className="bondad-interpretacion bondad-moderado carga-interpretacion" role="status">
-                <strong>Interpretación:</strong> {cargaInfra.meta.interpretacion}
-              </p>
-            )}
-            {cargaInfra?.meta?.cobertura_datos && (
-              <p className="muted small">
-                Cobertura en el periodo: {cargaInfra.meta.cobertura_datos.pct_con_via}% incidentes con vía ·{' '}
-                {cargaInfra.meta.cobertura_datos.pct_con_punto}% con punto crítico.
-              </p>
-            )}
-            {cargaInfra?.meta?.sin_datos && (
-              <p className="warn small">Sin entidades con datos suficientes para este ranking y filtros.</p>
-            )}
-            {cargaInfra?.ranking?.length > 0 && (
-              <div className="prioridad-table-wrap">
-                <table className="prioridad-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>{tipoInfra === 'ranking_via' ? 'Vía' : 'Punto crítico'}</th>
-                      <th>Carga proyectada</th>
-                      <th>Incidentes periodo</th>
-                      <th>R² serie</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cargaInfra.ranking.map((row) => (
-                      <tr key={row.rank}>
-                        <td>{row.rank}</td>
-                        <td>
-                          {tipoInfra === 'ranking_via' ? row.via_nombre : row.punto_critico_nombre}
-                          {tipoInfra === 'ranking_punto' && row.via_nombre && (
-                            <span className="muted small"> ({row.via_nombre})</span>
-                          )}
-                        </td>
-                        <td>
-                          {row.carga_proyectada_horizonte?.toLocaleString('es-CO', {
-                            maximumFractionDigits: 1,
-                          })}
-                        </td>
-                        <td>{row.incidentes_periodo}</td>
-                        <td>{row.r2 != null ? row.r2 : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            {cargaInfra?.meta?.limitaciones && (
-              <p className="muted small carga-limitaciones">{cargaInfra.meta.limitaciones}</p>
-            )}
-          </section>
-
           {tops?.meta != null && (
             <section className="panel">
               <h2>Rankings del periodo</h2>
               <p className="muted small">
-                Los cinco rankings vienen en una sola respuesta de API y aquí se muestran como{' '}
-                <strong>tablas independientes</strong> (así se evita una tabla única con filas heterogéneas difíciles de
-                leer). Conteo de <strong>víctimas</strong> con los mismos filtros del tablero; el % es sobre el total
-                del periodo ({Number(tops.meta.total_victimas_periodo ?? 0).toLocaleString('es-CO')} víctimas). Se listan
-                los primeros <strong>{tops.meta.limite ?? 10}</strong> lugares por categoría.
+                Principales concentraciones de <strong>víctimas</strong> en el periodo filtrado, desglosadas por sexo,
+                edad, condición en la vía, comuna y barrio. Cada tabla muestra los{' '}
+                <strong>{tops.meta.limite ?? 10}</strong> valores con mayor conteo; el % indica su participación sobre
+                el total del periodo (
+                {Number(tops.meta.total_victimas_periodo ?? 0).toLocaleString('es-CO')} víctimas con los filtros
+                aplicados).
               </p>
               <div className="tops-grid">
                 <div className="tops-card">
@@ -1500,7 +1353,7 @@ export function Dashboard() {
                               <td>
                                 {r.nombre}
                                 {r.comuna_nombre ? (
-                                  <span className="muted small"> Â· {r.comuna_nombre}</span>
+                                  <span className="muted small"> · {r.comuna_nombre}</span>
                                 ) : null}
                               </td>
                               <td className="num">{Number(r.total_victimas).toLocaleString('es-CO')}</td>

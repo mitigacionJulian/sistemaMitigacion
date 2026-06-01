@@ -1,8 +1,7 @@
 """
 Puntos de incidentes con coordenadas válidas para mapas (muestra acotada).
 
-Sirve para visualizar concentración geográfica; no sustituye análisis espacial
-estadístico ni densidad kernel formal.
+F3: filtros territoriales espaciales; consulta sobre incidente.ubicacion (PostGIS).
 """
 from __future__ import annotations
 
@@ -12,10 +11,42 @@ from typing import Any
 from django.db import connection
 
 from .kpis import FiltrosKpi
+from .map_cache import get_cached_map_payload, incidentes_mapa_cache_key
+from .territorio_sql import (
+    append_filtro_bbox,
+    append_filtro_geojson,
+    append_filtros_territoriales,
+    meta_bbox_dict,
+    meta_filtros_dict,
+    nota_modo_territorio,
+)
 
-# Si el cliente envía limite=0 (“sin límite práctico”), no se omite LIMIT en SQL:
-# se usa min(total_en_rango, este tope) para proteger BD y navegador.
 MAPA_CAP_SIN_LIMITE = 100_000
+
+PUNTOS_COLUMNAS = [
+    "id",
+    "latitud",
+    "longitud",
+    "radicado",
+    "fecha_incidente",
+    "clase_incidente",
+]
+
+
+def _puntos_a_compacto(puntos: list[dict[str, Any]]) -> list[list[Any]]:
+    compacto: list[list[Any]] = []
+    for p in puntos:
+        compacto.append(
+            [
+                p["id"],
+                p["latitud"],
+                p["longitud"],
+                p.get("radicado"),
+                p.get("fecha_incidente"),
+                p.get("clase_incidente") or "",
+            ]
+        )
+    return compacto
 
 
 def _query_incidentes_puntos(
@@ -24,33 +55,18 @@ def _query_incidentes_puntos(
     filtros: FiltrosKpi,
     limite_filas: int | None,
     cap_sin_limite: int = MAPA_CAP_SIN_LIMITE,
+    bbox: tuple[float, float, float, float] | None = None,
+    geojson: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
-    """
-    Devuelve (puntos, total_en_rango_sin_limite_aprox).
-    total: cuenta con el mismo WHERE sin LIMIT (puede ser costoso; se usa solo meta).
-
-    Si ``limite_filas`` es None (modo “sin límite” solicitado por API), el LIMIT del SELECT
-    es ``min(total, cap_sin_limite)``.
-    """
     where = [
         "i.fecha_incidente >= %s",
         "i.fecha_incidente <= %s",
-        "i.latitud IS NOT NULL",
-        "i.longitud IS NOT NULL",
-        "CAST(i.latitud AS DOUBLE PRECISION) BETWEEN 1 AND 11",
-        "CAST(i.longitud AS DOUBLE PRECISION) BETWEEN -79 AND -74",
+        "i.ubicacion IS NOT NULL",
     ]
     params: list[Any] = [inicio, fin]
-
-    if filtros.comuna_id is not None:
-        where.append("i.comuna_id = %s")
-        params.append(filtros.comuna_id)
-    if filtros.barrio_id is not None:
-        where.append("i.barrio_id = %s")
-        params.append(filtros.barrio_id)
-    if filtros.clase_incidente_id is not None:
-        where.append("i.clase_incidente_id = %s")
-        params.append(filtros.clase_incidente_id)
+    append_filtros_territoriales(where, params, filtros)
+    append_filtro_bbox(where, params, bbox)
+    append_filtro_geojson(where, params, geojson)
 
     wh = " AND ".join(where)
 
@@ -60,8 +76,8 @@ def _query_incidentes_puntos(
       i.id,
       i.radicado,
       i.fecha_incidente,
-      CAST(i.latitud AS DOUBLE PRECISION) AS latitud,
-      CAST(i.longitud AS DOUBLE PRECISION) AS longitud,
+      ST_Y(i.ubicacion)::double precision AS latitud,
+      ST_X(i.ubicacion)::double precision AS longitud,
       ci.nombre AS clase_incidente
     FROM incidente i
     LEFT JOIN clase_incidente ci ON ci.id = i.clase_incidente_id
@@ -102,17 +118,45 @@ def build_incidentes_mapa_payload(
     fin: date,
     filtros: FiltrosKpi | None = None,
     limite: int = 10_000,
+    bbox: tuple[float, float, float, float] | None = None,
+    geojson: str | None = None,
 ) -> dict[str, Any]:
     filtros = filtros or FiltrosKpi()
+    limite_int = int(limite)
+    cache_key = incidentes_mapa_cache_key(
+        inicio.isoformat(),
+        fin.isoformat(),
+        filtros,
+        limite=limite_int,
+    )
+
+    def _build() -> dict[str, Any]:
+        return _build_incidentes_mapa_payload_uncached(
+            inicio, fin, filtros, limite_int, bbox, geojson
+        )
+
+    return get_cached_map_payload(cache_key, _build)
+
+
+def _build_incidentes_mapa_payload_uncached(
+    inicio: date,
+    fin: date,
+    filtros: FiltrosKpi,
+    limite: int,
+    bbox: tuple[float, float, float, float] | None = None,
+    geojson: str | None = None,
+) -> dict[str, Any]:
     sin_limite_solicitado = int(limite) == 0
     if sin_limite_solicitado:
         puntos, total_con_coord = _query_incidentes_puntos(
-            inicio, fin, filtros, None, MAPA_CAP_SIN_LIMITE
+            inicio, fin, filtros, None, MAPA_CAP_SIN_LIMITE, bbox, geojson
         )
         lim_aplicado = min(total_con_coord, MAPA_CAP_SIN_LIMITE) if total_con_coord > 0 else 0
     else:
         lim = max(100, min(MAPA_CAP_SIN_LIMITE, int(limite)))
-        puntos, total_con_coord = _query_incidentes_puntos(inicio, fin, filtros, lim)
+        puntos, total_con_coord = _query_incidentes_puntos(
+            inicio, fin, filtros, lim, MAPA_CAP_SIN_LIMITE, bbox, geojson
+        )
         lim_aplicado = lim
 
     truncado = total_con_coord > len(puntos)
@@ -129,14 +173,15 @@ def build_incidentes_mapa_payload(
             "puntos_devueltos": len(puntos),
             "muestra_truncada": truncado,
             "descripcion": (
-                "Incidentes con latitud y longitud no nulas en el rango; orden descendente por fecha. "
-                "La capa usa círculos semitransparentes: donde hay más solapamiento se percibe mayor densidad."
+                "Incidentes con ubicacion PostGIS en el rango; orden descendente por fecha. "
+                "La capa usa circulos semitransparentes: donde hay mas solapamiento se percibe mayor densidad."
             ),
-            "filtros": {
-                "comuna_id": filtros.comuna_id,
-                "barrio_id": filtros.barrio_id,
-                "clase_incidente_id": filtros.clase_incidente_id,
-            },
+            "filtros": meta_filtros_dict(filtros),
+            "bbox": meta_bbox_dict(bbox),
+            "filtro_geojson": bool(geojson and str(geojson).strip()),
+            "nota_territorio": nota_modo_territorio(filtros.modo_territorio),
+            "formato_puntos": "compacto",
+            "columnas_puntos": PUNTOS_COLUMNAS,
         },
-        "puntos": puntos,
+        "puntos": _puntos_a_compacto(puntos),
     }

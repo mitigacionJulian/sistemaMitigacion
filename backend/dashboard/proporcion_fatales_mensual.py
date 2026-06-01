@@ -13,12 +13,16 @@ from django.db import connection
 
 from .evolucion_mensual import _etiqueta_mes_ym, _iter_meses_clave
 from .kpis import FiltrosKpi, _fatal_sql_expr
+from .territorio_sql import barrio_fk_col, comuna_fk_col, meta_filtros_dict, nota_modo_territorio
 from .predicciones_mensuales import (
+    MA_VENTANA_DEFAULT,
     MESES_EXCLUIR_COVID_MEDE,
     _SerieMensual,
+    _clamp_ventana_ma,
     _design_ctx_from_meses,
     _design_forecast_row,
     _fit_estacional,
+    _fit_media_movil,
     _interpretacion_bondad,
     _metricas_ajuste,
     _min_meses_modelo,
@@ -28,21 +32,26 @@ from .predicciones_mensuales import (
     _year_from_ym,
 )
 
-ModeloProp = Literal["ols", "logistica", "estacional"]
+ModeloProp = Literal["ols", "logistica", "estacional", "media_movil"]
 MIN_VICTIMAS_MES = 10
 
 
 def _where_sql(filtros: FiltrosKpi, comuna_id: int | None) -> tuple[str, list[Any]]:
     where = ["i.fecha_incidente >= %s", "i.fecha_incidente <= %s"]
     params: list[Any] = []
+    modo = filtros.modo_territorio or "registro"
+    if modo == "espacial":
+        where.append("i.ubicacion IS NOT NULL")
+    col_c = comuna_fk_col(modo)
+    col_b = barrio_fk_col(modo)
     if comuna_id is not None:
-        where.append("i.comuna_id = %s")
+        where.append(f"i.{col_c} = %s")
         params.append(comuna_id)
     elif filtros.comuna_id is not None:
-        where.append("i.comuna_id = %s")
+        where.append(f"i.{col_c} = %s")
         params.append(filtros.comuna_id)
     if filtros.barrio_id is not None:
-        where.append("i.barrio_id = %s")
+        where.append(f"i.{col_b} = %s")
         params.append(filtros.barrio_id)
     if filtros.clase_incidente_id is not None:
         where.append("i.clase_incidente_id = %s")
@@ -125,6 +134,11 @@ def _metodo_proporcion(modelo: ModeloProp) -> str:
             "Regresión OLS sobre logit(p/100) del % mensual; la proyección vuelve a escala % "
             "con la función logística inversa. Útil si se espera tendencia suave acotada entre 0 y 100."
         )
+    if modelo == "media_movil":
+        return (
+            "Media móvil simple del % mensual (ventana k meses): suaviza la serie y proyecta "
+            "un nivel constante igual a la media de los k meses más recientes del ajuste."
+        )
     return (
         "Regresión lineal del % mensual frente al índice de mes 0…n−1 en el periodo de ajuste; "
         "extrapolación lineal de la tendencia. No captura estacionalidad ni picos aislados."
@@ -156,6 +170,11 @@ def _interpretacion_bondad_proporcion(
         texto += (
             " En % fatales muy volátil, logit-lineal suele verse como línea casi plana y R² "
             "cercano a cero; no indica error del sistema sino poca tendencia estable."
+        )
+    elif modelo == "media_movil":
+        texto += (
+            " La media móvil sobre % fatales es una línea base simple: útil para leer el nivel "
+            "reciente sin forzar tendencia lineal ni estacionalidad."
         )
     else:
         texto += (
@@ -217,6 +236,8 @@ def _forecast_proporcion(
             mo = _month_index(mk)
             row = _design_forecast_row(n + k, mo, _year_from_ym(mk), ctx)
             y = sum(b * xv for b, xv in zip(beta, row))
+        elif modelo == "media_movil" and beta:
+            y = beta[0]
         elif len(beta) >= 2:
             y = beta[0] + beta[1] * float(n + k)
         else:
@@ -264,8 +285,10 @@ def _build_proporcion_single(
     excluir_covid: bool,
     comuna_id: int | None,
     comuna_nombre: str | None,
+    ventana_ma: int = MA_VENTANA_DEFAULT,
 ) -> dict[str, Any]:
     hm = max(1, min(12, int(horizonte_meses)))
+    ventana = _clamp_ventana_ma(ventana_ma)
     meses_all = _iter_meses_clave(inicio, fin)
     excl = MESES_EXCLUIR_COVID_MEDE if excluir_covid else frozenset()
     raw = _query_victimas_fatales_mes(inicio, fin, filtros, comuna_id)
@@ -294,7 +317,10 @@ def _build_proporcion_single(
             fatales_fit.append(d["fatales"])
         serie_historica.append(row)
 
-    min_req = _min_meses_modelo("estacional" if modelo == "estacional" else "ols")
+    if modelo == "media_movil":
+        min_req = _min_meses_modelo("media_movil", ventana)
+    else:
+        min_req = _min_meses_modelo("estacional" if modelo == "estacional" else "ols")
     sin_modelo = len(meses_fit) < min_req
     proyeccion: list[dict[str, Any]] = []
     coeficientes: dict[str, Any] | None = None
@@ -306,6 +332,12 @@ def _build_proporcion_single(
             serie = _SerieMensual(meses=meses_fit, valores=[int(round(p)) for p in pcts_fit])
             yhat, beta, coeficientes = _fit_estacional(serie)
             coeficientes["nota"] = "Estacional sobre % fatales (escala 0–100)."
+        elif modelo == "media_movil":
+            serie = _SerieMensual(meses=meses_fit, valores=[int(round(p)) for p in pcts_fit])
+            yhat, beta, coeficientes = _fit_media_movil(serie, ventana)
+            coeficientes["nota"] = (
+                "Media móvil sobre % fatales (0–100); proyección constante al último valor suavizado."
+            )
         else:
             xs = [float(i) for i in range(len(pcts_fit))]
             a, b = _ols_intercept_slope(xs, pcts_fit)
@@ -362,6 +394,8 @@ def _build_proporcion_single(
     if comuna_id is not None:
         meta["comuna_id"] = comuna_id
         meta["comuna_nombre"] = comuna_nombre
+    if modelo == "media_movil":
+        meta["ventana_meses"] = ventana
 
     return {
         "meta": meta,
@@ -378,11 +412,15 @@ def build_proporcion_fatales_payload(
     modelo: str = "estacional",
     excluir_covid: bool = True,
     desglose_comuna: bool = False,
+    ventana_ma: int = MA_VENTANA_DEFAULT,
 ) -> dict[str, Any]:
     filtros = filtros or FiltrosKpi()
     mod: ModeloProp = (
-        modelo if modelo in ("ols", "logistica", "estacional") else "estacional"
+        modelo
+        if modelo in ("ols", "logistica", "estacional", "media_movil")
+        else "estacional"
     )
+    ventana = _clamp_ventana_ma(ventana_ma)
 
     if desglose_comuna and filtros.comuna_id is None:
         from .prioridad_territorial import _query_totales_territorio
@@ -391,7 +429,15 @@ def build_proporcion_fatales_payload(
         series: list[dict[str, Any]] = []
         for tid, t in sorted(totales.items(), key=lambda x: -x[1]["incidentes"])[:10]:
             bloque = _build_proporcion_single(
-                inicio, fin, filtros, horizonte_meses, mod, excluir_covid, tid, t["nombre"]
+                inicio,
+                fin,
+                filtros,
+                horizonte_meses,
+                mod,
+                excluir_covid,
+                tid,
+                t["nombre"],
+                ventana_ma=ventana,
             )
             series.append(
                 {
@@ -415,7 +461,15 @@ def build_proporcion_fatales_payload(
         }
 
     bloque = _build_proporcion_single(
-        inicio, fin, filtros, horizonte_meses, mod, excluir_covid, None, None
+        inicio,
+        fin,
+        filtros,
+        horizonte_meses,
+        mod,
+        excluir_covid,
+        None,
+        None,
+        ventana_ma=ventana,
     )
     bloque["meta"] = {
         "fecha_inicio": inicio.isoformat(),
@@ -424,10 +478,7 @@ def build_proporcion_fatales_payload(
         "modelo": mod,
         "desglose_comuna": False,
         **bloque["meta"],
-        "filtros": {
-            "comuna_id": filtros.comuna_id,
-            "barrio_id": filtros.barrio_id,
-            "clase_incidente_id": filtros.clase_incidente_id,
-        },
+        "filtros": meta_filtros_dict(filtros),
+        "nota_territorio": nota_modo_territorio(filtros.modo_territorio),
     }
     return bloque

@@ -57,6 +57,23 @@ def test_matriz_delta_coherente_por_celda(mock_heat, _mock_total):
     assert c00["delta_proyeccion_menos_periodo"] == c00["incidentes_proyectados_horizonte"] - 40
 
 
+@patch("dashboard.patrones_temporales_proyectados._total_proyectado_horizonte", return_value=(90.0, {"sin_modelo": False}))
+@patch("dashboard.patrones_temporales_proyectados._query_heatmap")
+def test_matriz_proyectada_modelo_media_movil(mock_heat, mock_total):
+    mock_heat.return_value = {(1, 8): 10, (2, 9): 30}
+    payload = build_matriz_dia_hora_proyectada_payload(
+        date(2021, 1, 1),
+        date(2021, 9, 30),
+        horizonte_meses=3,
+        modelo="media_movil",
+        ventana_ma=6,
+    )
+    assert payload["meta"]["modelo"] == "media_movil"
+    assert payload["meta"]["ventana_meses"] == 6
+    mock_total.assert_called_once()
+    assert mock_total.call_args.args[4] == "media_movil"
+
+
 @patch("dashboard.patrones_temporales_proyectados._total_proyectado_horizonte", return_value=(None, {"sin_modelo": True}))
 @patch("dashboard.patrones_temporales_proyectados._query_heatmap", return_value={(0, 0): 5})
 def test_matriz_proyectada_sin_modelo(_mock_heat, _mock_total):
