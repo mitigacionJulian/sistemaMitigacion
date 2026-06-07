@@ -1,16 +1,18 @@
 """
 F4 / P14 — Hotspots espaciales exploratorios (PostGIS).
 
-Cuadrícula en EPSG:3857 (metros) o clusters ST_ClusterDBSCAN.
+Cuadrícula en EPSG:3857 (metros), opcionalmente acotada por polígono (área dibujada).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import date
 from typing import Any, Literal
 
 from django.db import connection
 
+from .area_analisis import build_area_resumen
 from .kpis import FiltrosKpi
 from .map_cache import get_cached_map_payload, hotspots_cache_key
 from .territorio_sql import (
@@ -20,26 +22,35 @@ from .territorio_sql import (
     meta_bbox_dict,
     meta_filtros_dict,
     nota_modo_territorio,
+    parse_filtro_geojson,
 )
 
-MetodoHotspot = Literal["cuadricula", "dbscan"]
+MetodoHotspot = Literal["cuadricula", "area"]
 
 DEFAULT_TAMANO_CELDA_M = 300.0
+TAMANO_CELDA_AREA_M = 100.0
 MIN_TAMANO_CELDA_M = 50.0
 MAX_TAMANO_CELDA_M = 2000.0
 DEFAULT_LIMITE_CELDAS = 800
 MAX_LIMITE_CELDAS = 2000
-DEFAULT_DBSCAN_EPS_M = 150.0
-MIN_DBSCAN_EPS_M = 25.0
-MAX_DBSCAN_EPS_M = 1000.0
-DEFAULT_DBSCAN_MINPOINTS = 5
-MIN_DBSCAN_MINPOINTS = 3
-MAX_DBSCAN_MINPOINTS = 50
+MAX_CELDAS_MALLA_AREA = 2000
 DEFAULT_LIMITE_RANKING_G06 = 15
 MAX_LIMITE_RANKING_G06 = 50
 
 
-def clamp_tamano_celda_m(raw: float | int | None) -> float:
+def geojson_cache_fingerprint(geojson: str | None) -> str:
+    if not geojson or not str(geojson).strip():
+        return ""
+    return hashlib.sha256(str(geojson).encode()).hexdigest()[:16]
+
+
+def clamp_tamano_celda_m(
+    raw: float | int | None,
+    *,
+    metodo: MetodoHotspot = "cuadricula",
+) -> float:
+    if metodo == "area":
+        return TAMANO_CELDA_AREA_M
     if raw is None:
         return DEFAULT_TAMANO_CELDA_M
     try:
@@ -60,29 +71,15 @@ def clamp_limite_celdas(raw: int | None) -> int:
 
 
 def parse_metodo_hotspot(raw: str | None) -> MetodoHotspot:
-    if raw and str(raw).strip().lower() in ("dbscan", "cluster", "clusters"):
-        return "dbscan"
+    if raw and str(raw).strip().lower() in (
+        "area",
+        "area_seleccion",
+        "seleccion",
+        "poligono",
+        "polygon",
+    ):
+        return "area"
     return "cuadricula"
-
-
-def clamp_dbscan_eps_m(raw: float | int | None) -> float:
-    if raw is None:
-        return DEFAULT_DBSCAN_EPS_M
-    try:
-        v = float(raw)
-    except (TypeError, ValueError):
-        return DEFAULT_DBSCAN_EPS_M
-    return max(MIN_DBSCAN_EPS_M, min(MAX_DBSCAN_EPS_M, v))
-
-
-def clamp_dbscan_minpoints(raw: int | None) -> int:
-    if raw is None:
-        return DEFAULT_DBSCAN_MINPOINTS
-    try:
-        v = int(raw)
-    except (TypeError, ValueError):
-        return DEFAULT_DBSCAN_MINPOINTS
-    return max(MIN_DBSCAN_MINPOINTS, min(MAX_DBSCAN_MINPOINTS, v))
 
 
 def clamp_limite_ranking_g06(raw: int | None) -> int:
@@ -137,13 +134,124 @@ def _count_celdas_cuadricula(where: str, params: list[Any], tamano_celda_m: floa
     return int(row[0] or 0) if row else 0
 
 
+def _rows_from_cuadricula_cursor(
+    cursor,
+    *,
+    recortada: bool = False,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for conteo, area_m2, geometry_json in cursor.fetchall():
+        area_km2 = float(area_m2 or 0) / 1_000_000.0
+        densidad = float(conteo) / area_km2 if area_km2 > 0 else 0.0
+        rows.append(
+            {
+                "conteo": int(conteo),
+                "area_m2": float(area_m2 or 0),
+                "area_km2": round(area_km2, 6),
+                "densidad_por_km2": round(densidad, 4),
+                "geometry": json.loads(geometry_json) if geometry_json else None,
+                "recortada": recortada,
+            }
+        )
+    return rows
+
+
+def _count_celdas_malla_area(clip_geojson: str, tamano_celda_m: float) -> int:
+    """Celdas de la malla ST_SquareGrid que intersectan el polígono (modo área)."""
+    sql = """
+    WITH selection AS (
+      SELECT ST_MakeValid(
+        ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), 3857)
+      ) AS poly_3857
+    )
+    SELECT COUNT(*)::int
+    FROM selection s
+    CROSS JOIN LATERAL ST_SquareGrid(%s, ST_Envelope(s.poly_3857)) AS g
+    WHERE ST_Intersects((g).geom, s.poly_3857)
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(sql, [clip_geojson, tamano_celda_m])
+        row = cursor.fetchone()
+    return int(row[0] or 0) if row else 0
+
+
+def _query_cuadricula_malla_area(
+    where: str,
+    params: list[Any],
+    tamano_celda_m: float,
+    clip_geojson: str,
+) -> list[dict[str, Any]]:
+    """Todas las celdas del polígono (conteo 0 en gris en el cliente)."""
+    size = tamano_celda_m
+    gj = str(clip_geojson).strip()
+    sql = f"""
+    WITH selection AS (
+      SELECT ST_MakeValid(
+        ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), 3857)
+      ) AS poly_3857
+    ),
+    filtered AS (
+      SELECT ST_Transform(i.ubicacion, 3857) AS g3857
+      FROM incidente i
+      WHERE {where}
+    ),
+    incident_counts AS (
+      SELECT
+        ST_X(ST_SnapToGrid(g3857, %s)) AS cell_x,
+        ST_Y(ST_SnapToGrid(g3857, %s)) AS cell_y,
+        COUNT(*)::int AS conteo
+      FROM filtered
+      GROUP BY 1, 2
+    ),
+    all_squares AS (
+      SELECT (g).geom AS cell_full_3857
+      FROM selection s
+      CROSS JOIN LATERAL ST_SquareGrid(%s, ST_Envelope(s.poly_3857)) AS g
+      WHERE ST_Intersects((g).geom, s.poly_3857)
+    ),
+    joined AS (
+      SELECT
+        sq.cell_full_3857,
+        COALESCE(ic.conteo, 0)::int AS conteo
+      FROM all_squares sq
+      LEFT JOIN incident_counts ic
+        ON ic.cell_x = ST_XMin(sq.cell_full_3857)
+       AND ic.cell_y = ST_YMin(sq.cell_full_3857)
+    ),
+    clipped AS (
+      SELECT
+        j.conteo,
+        ST_Intersection(j.cell_full_3857, s.poly_3857) AS cell_geom_3857
+      FROM joined j
+      CROSS JOIN selection s
+      WHERE ST_Area(ST_Intersection(j.cell_full_3857, s.poly_3857)) > 1
+    )
+    SELECT
+      c.conteo,
+      ST_Area(c.cell_geom_3857)::double precision AS area_m2,
+      ST_AsGeoJSON(ST_Transform(c.cell_geom_3857, 4326))::text AS geometry_json
+    FROM clipped c
+    ORDER BY c.conteo DESC, ST_YMin(c.cell_geom_3857) DESC
+    """
+    qparams = [gj, *params, size, size, size]
+    with connection.cursor() as cursor:
+        cursor.execute(sql, qparams)
+        return _rows_from_cuadricula_cursor(cursor, recortada=True)
+
+
 def _query_cuadricula(
     where: str,
     params: list[Any],
     tamano_celda_m: float,
     limite_celdas: int,
+    *,
+    clip_geojson: str | None = None,
+    malla_completa: bool = False,
 ) -> list[dict[str, Any]]:
     size = tamano_celda_m
+    if clip_geojson and str(clip_geojson).strip() and malla_completa:
+        return _query_cuadricula_malla_area(where, params, size, str(clip_geojson).strip())
+
     sql = f"""
     WITH filtered AS (
       SELECT ST_Transform(i.ubicacion, 3857) AS g3857
@@ -178,91 +286,13 @@ def _query_cuadricula(
     LIMIT %s
     """
     qparams = [*params, size, size, size, limite_celdas]
-    rows: list[dict[str, Any]] = []
     with connection.cursor() as cursor:
         cursor.execute(sql, qparams)
-        for conteo, area_m2, geometry_json in cursor.fetchall():
-            area_km2 = float(area_m2 or 0) / 1_000_000.0
-            densidad = float(conteo) / area_km2 if area_km2 > 0 else 0.0
-            rows.append(
-                {
-                    "conteo": int(conteo),
-                    "area_m2": float(area_m2 or 0),
-                    "area_km2": round(area_km2, 6),
-                    "densidad_por_km2": round(densidad, 4),
-                    "geometry": json.loads(geometry_json) if geometry_json else None,
-                }
-            )
-    return rows
-
-
-def _query_dbscan(
-    where: str,
-    params: list[Any],
-    eps_m: float,
-    minpoints: int,
-    limite_celdas: int,
-) -> list[dict[str, Any]]:
-    sql = f"""
-    WITH filtered AS (
-      SELECT
-        i.id,
-        ST_Transform(i.ubicacion, 3857) AS g3857,
-        i.ubicacion AS g4326
-      FROM incidente i
-      WHERE {where}
-    ),
-    clustered AS (
-      SELECT
-        id,
-        g3857,
-        g4326,
-        ST_ClusterDBSCAN(g3857, eps := %s, minpoints := %s) OVER () AS cid
-      FROM filtered
-    ),
-    groups AS (
-      SELECT
-        cid,
-        COUNT(*)::int AS conteo,
-        ST_Collect(g3857) AS geom_collect_3857
-      FROM clustered
-      WHERE cid IS NOT NULL
-      GROUP BY cid
-    )
-    SELECT
-      g.cid,
-      g.conteo,
-      ST_Area(ST_ConvexHull(g.geom_collect_3857))::double precision AS area_m2,
-      ST_AsGeoJSON(
-        ST_Transform(ST_Buffer(ST_ConvexHull(g.geom_collect_3857), 5), 4326)
-      )::text AS geometry_json
-    FROM groups g
-    ORDER BY g.conteo DESC
-    LIMIT %s
-    """
-    qparams = [*params, eps_m, minpoints, limite_celdas]
-    rows: list[dict[str, Any]] = []
-    with connection.cursor() as cursor:
-        cursor.execute(sql, qparams)
-        for cid, conteo, area_m2, geometry_json in cursor.fetchall():
-            area_km2 = float(area_m2 or 0) / 1_000_000.0
-            densidad = float(conteo) / area_km2 if area_km2 > 0 else 0.0
-            rows.append(
-                {
-                    "cluster_id": int(cid),
-                    "conteo": int(conteo),
-                    "area_m2": float(area_m2 or 0),
-                    "area_km2": round(area_km2, 6),
-                    "densidad_por_km2": round(densidad, 4),
-                    "geometry": json.loads(geometry_json) if geometry_json else None,
-                }
-            )
-    return rows
+        return _rows_from_cuadricula_cursor(cursor, recortada=False)
 
 
 def _rows_to_feature_collection(
     rows: list[dict[str, Any]],
-    metodo: MetodoHotspot,
 ) -> tuple[list[dict[str, Any]], float]:
     features: list[dict[str, Any]] = []
     densidad_max = 0.0
@@ -278,9 +308,8 @@ def _rows_to_feature_collection(
             "area_m2": row.get("area_m2"),
             "area_km2": row.get("area_km2"),
             "densidad_por_km2": densidad,
+            "recortada": bool(row.get("recortada")),
         }
-        if metodo == "dbscan" and row.get("cluster_id") is not None:
-            props["cluster_id"] = row["cluster_id"]
         features.append(
             {
                 "type": "Feature",
@@ -292,6 +321,45 @@ def _rows_to_feature_collection(
     return features, densidad_max
 
 
+def _empty_hotspots_meta(
+    inicio: date,
+    fin: date,
+    filtros: FiltrosKpi,
+    *,
+    metodo: MetodoHotspot,
+    tamano_celda_m: float,
+    limite_celdas: int,
+    bbox: tuple[float, float, float, float] | None,
+    geojson: str | None,
+    mensaje: str,
+) -> dict[str, Any]:
+    return {
+        "type": "FeatureCollection",
+        "features": [],
+        "meta": {
+            "fecha_inicio": inicio.isoformat(),
+            "fecha_fin": fin.isoformat(),
+            "metodo": metodo,
+            "tamano_celda_m": tamano_celda_m,
+            "limite_celdas": limite_celdas,
+            "total_incidentes": 0,
+            "total_celdas": 0,
+            "celdas_devueltas": 0,
+            "densidad_max_km2": 0.0,
+            "sin_datos": True,
+            "descripcion": mensaje,
+            "filtros": meta_filtros_dict(filtros),
+            "bbox": meta_bbox_dict(bbox),
+            "filtro_geojson": bool(geojson and str(geojson).strip()),
+            "nota_territorio": nota_modo_territorio(filtros.modo_territorio),
+            "limitaciones": (
+                "Cuadrícula fija en metros (ST_SnapToGrid en EPSG:3857). "
+                "Modo área: dibuje un polígono en el mapa. Exploratorio, no inferencia causal."
+            ),
+        },
+    }
+
+
 def build_hotspots_payload(
     inicio: date,
     fin: date,
@@ -300,16 +368,13 @@ def build_hotspots_payload(
     metodo: MetodoHotspot = "cuadricula",
     tamano_celda_m: float = DEFAULT_TAMANO_CELDA_M,
     limite_celdas: int = DEFAULT_LIMITE_CELDAS,
-    dbscan_eps_m: float = DEFAULT_DBSCAN_EPS_M,
-    dbscan_minpoints: int = DEFAULT_DBSCAN_MINPOINTS,
     bbox: tuple[float, float, float, float] | None = None,
     geojson: str | None = None,
 ) -> dict[str, Any]:
     filtros = filtros or FiltrosKpi()
-    tamano_celda_m = clamp_tamano_celda_m(tamano_celda_m)
+    tamano_celda_m = clamp_tamano_celda_m(tamano_celda_m, metodo=metodo)
     limite_celdas = clamp_limite_celdas(limite_celdas)
-    dbscan_eps_m = clamp_dbscan_eps_m(dbscan_eps_m)
-    dbscan_minpoints = clamp_dbscan_minpoints(dbscan_minpoints)
+    geojson_fp = geojson_cache_fingerprint(geojson)
 
     cache_key = hotspots_cache_key(
         inicio.isoformat(),
@@ -318,8 +383,7 @@ def build_hotspots_payload(
         metodo=metodo,
         tamano_celda_m=tamano_celda_m,
         limite_celdas=limite_celdas,
-        dbscan_eps_m=dbscan_eps_m,
-        dbscan_minpoints=dbscan_minpoints,
+        geojson_fp=geojson_fp,
     )
 
     def _build() -> dict[str, Any]:
@@ -330,8 +394,6 @@ def build_hotspots_payload(
             metodo=metodo,
             tamano_celda_m=tamano_celda_m,
             limite_celdas=limite_celdas,
-            dbscan_eps_m=dbscan_eps_m,
-            dbscan_minpoints=dbscan_minpoints,
             bbox=bbox,
             geojson=geojson,
         )
@@ -347,62 +409,124 @@ def _build_hotspots_payload_uncached(
     metodo: MetodoHotspot,
     tamano_celda_m: float,
     limite_celdas: int,
-    dbscan_eps_m: float,
-    dbscan_minpoints: int,
     bbox: tuple[float, float, float, float] | None,
     geojson: str | None,
 ) -> dict[str, Any]:
+    if metodo == "area" and not (geojson and str(geojson).strip()):
+        return _empty_hotspots_meta(
+            inicio,
+            fin,
+            filtros,
+            metodo=metodo,
+            tamano_celda_m=tamano_celda_m,
+            limite_celdas=limite_celdas,
+            bbox=bbox,
+            geojson=geojson,
+            mensaje=(
+                "Modo área: dibuje un polígono en el mapa (control de selección) "
+                "y aplique los filtros para calcular la cuadrícula dentro del área."
+            ),
+        )
 
     where, params = _where_clause(inicio, fin, filtros, bbox, geojson)
     total_incidentes = _count_incidentes(where, params)
 
-    if metodo == "dbscan":
-        rows = _query_dbscan(where, params, dbscan_eps_m, dbscan_minpoints, limite_celdas)
-        total_celdas = len(rows)
-        descripcion = (
-            "Clusters DBSCAN sobre incidente.ubicacion (EPSG:3857, eps en metros). "
-            "Polígono = envolvente con buffer de 5 m; exploratorio, no inferencia causal."
-        )
+    clip = geojson if metodo == "area" and geojson and str(geojson).strip() else None
+    malla_completa = bool(clip)
+    malla_area_excedida = False
+    if malla_completa and clip:
+        n_malla = _count_celdas_malla_area(clip, tamano_celda_m)
+        if n_malla > MAX_CELDAS_MALLA_AREA:
+            malla_area_excedida = True
+            rows = []
+            total_celdas = n_malla
+        else:
+            rows = _query_cuadricula(
+                where,
+                params,
+                tamano_celda_m,
+                limite_celdas,
+                clip_geojson=clip,
+                malla_completa=True,
+            )
+            total_celdas = len(rows)
     else:
-        rows = _query_cuadricula(where, params, tamano_celda_m, limite_celdas)
+        rows = _query_cuadricula(
+            where, params, tamano_celda_m, limite_celdas, clip_geojson=clip
+        )
         if len(rows) >= limite_celdas:
             total_celdas = _count_celdas_cuadricula(where, params, tamano_celda_m)
         else:
             total_celdas = len(rows)
+
+    celdas_con_incidentes = sum(1 for r in rows if int(r.get("conteo") or 0) > 0)
+
+    if metodo == "area":
+        descripcion = (
+            f"Malla completa de {int(TAMANO_CELDA_AREA_M)} m dentro del polígono "
+            "(celdas sin incidentes incluidas). Recorte ST_Intersection al borde. Exploratorio."
+        )
+    else:
         descripcion = (
             "Cuadrícula fija en metros (ST_SnapToGrid en EPSG:3857). "
             "Densidad = conteo / área de celda (km²). Exploratorio, no inferencia causal."
         )
 
-    features, densidad_max = _rows_to_feature_collection(rows, metodo)
+    features, densidad_max = _rows_to_feature_collection(rows)
+
+    meta: dict[str, Any] = {
+        "fecha_inicio": inicio.isoformat(),
+        "fecha_fin": fin.isoformat(),
+        "metodo": metodo,
+        "tamano_celda_m": tamano_celda_m,
+        "limite_celdas": limite_celdas,
+        "total_incidentes": total_incidentes,
+        "total_celdas": total_celdas,
+        "celdas_devueltas": len(features),
+        "densidad_max_km2": round(densidad_max, 4),
+        "sin_datos": malla_area_excedida or len(features) == 0,
+        "descripcion": descripcion,
+        "filtros": meta_filtros_dict(filtros),
+        "bbox": meta_bbox_dict(bbox),
+        "filtro_geojson": bool(geojson and str(geojson).strip()),
+        "celdas_recortadas": bool(clip),
+        "malla_completa": malla_completa,
+        "celdas_con_incidentes": celdas_con_incidentes,
+        "celdas_sin_incidentes": max(0, len(features) - celdas_con_incidentes),
+        "malla_area_excedida": malla_area_excedida,
+        "max_celdas_malla_area": MAX_CELDAS_MALLA_AREA if malla_completa else None,
+        "nota_territorio": nota_modo_territorio(filtros.modo_territorio),
+        "limitaciones": (
+            "No sustituye análisis de kernel ni modelo espacial formal. "
+            "La cuadrícula depende del tamaño de celda y la alineación global EPSG:3857; "
+            "En modo área la malla incluye celdas vacías (gris) recortadas al polígono. "
+            "Incidentes sin ubicacion PostGIS quedan fuera."
+        ),
+    }
+    if malla_area_excedida:
+        meta["descripcion"] = (
+            f"El polígono generaría más de {MAX_CELDAS_MALLA_AREA} celdas de "
+            f"{int(tamano_celda_m)} m. Reduzca el área dibujada."
+        )
+
+    if metodo == "area" and geojson and str(geojson).strip() and not malla_area_excedida:
+        meta["area_resumen"] = build_area_resumen(
+            inicio,
+            fin,
+            where,
+            params,
+            str(geojson).strip(),
+            total_incidentes=total_incidentes,
+            total_celdas=total_celdas,
+            celdas_devueltas=len(features),
+            tamano_celda_m=tamano_celda_m,
+            grid_rows=rows,
+        )
 
     return {
         "type": "FeatureCollection",
         "features": features,
-        "meta": {
-            "fecha_inicio": inicio.isoformat(),
-            "fecha_fin": fin.isoformat(),
-            "metodo": metodo,
-            "tamano_celda_m": tamano_celda_m if metodo == "cuadricula" else None,
-            "dbscan_eps_m": dbscan_eps_m if metodo == "dbscan" else None,
-            "dbscan_minpoints": dbscan_minpoints if metodo == "dbscan" else None,
-            "limite_celdas": limite_celdas,
-            "total_incidentes": total_incidentes,
-            "total_celdas": total_celdas,
-            "celdas_devueltas": len(features),
-            "densidad_max_km2": round(densidad_max, 4),
-            "sin_datos": total_incidentes == 0 or len(features) == 0,
-            "descripcion": descripcion,
-            "filtros": meta_filtros_dict(filtros),
-            "bbox": meta_bbox_dict(bbox),
-            "filtro_geojson": bool(geojson and str(geojson).strip()),
-            "nota_territorio": nota_modo_territorio(filtros.modo_territorio),
-            "limitaciones": (
-                "No sustituye análisis de kernel ni modelo espacial formal. "
-                "La cuadrícula depende del tamaño de celda; DBSCAN depende de eps y minpoints. "
-                "Incidentes sin ubicacion PostGIS quedan fuera."
-            ),
-        },
+        "meta": meta,
     }
 
 

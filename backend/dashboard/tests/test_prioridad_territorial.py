@@ -48,14 +48,13 @@ def test_indice_compuesto_orden():
 
 
 @pytest.mark.django_db
-def test_api_prioridad_territorial_ok():
+def test_api_prioridad_territorial_ok(analista_client):
     fake = {
         "meta": {"nivel": "comuna", "sin_datos": False, "pesos": PESOS_COMPONENTES},
         "ranking": [{"rank": 1, "comuna_id": 1, "indice_prioridad": 70.0}],
     }
     with patch("dashboard.views.build_prioridad_territorial_payload", return_value=fake):
-        c = APIClient()
-        r = c.get(
+        r = analista_client.get(
             reverse("dashboard-prioridad-territorial"),
             {"desde": "2021-01-01", "hasta": "2021-03-31", "nivel": "comuna"},
         )

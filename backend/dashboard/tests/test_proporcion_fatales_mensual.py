@@ -95,15 +95,14 @@ def test_proyeccion_estable_no_cae_a_cero():
 
 
 @pytest.mark.django_db
-def test_api_proporcion_fatales_ok():
+def test_api_proporcion_fatales_ok(analista_client):
     fake = {
         "meta": {"modelo": "ols", "sin_modelo": False},
         "serie_historica": [{"mes_clave": "2021-01", "pct_fatales": 5.0}],
         "proyeccion": [],
     }
     with patch("dashboard.views.build_proporcion_fatales_payload", return_value=fake):
-        c = APIClient()
-        r = c.get(
+        r = analista_client.get(
             reverse("dashboard-proporcion-fatales-mensual"),
             {"desde": "2021-01-01", "hasta": "2021-03-31", "modelo": "ols"},
         )

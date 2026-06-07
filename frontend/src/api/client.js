@@ -176,12 +176,6 @@ export async function confirmPasswordReset(payload) {
   return body
 }
 
-export async function fetchDashboardMock() {
-  const r = await apiFetch('/dashboard/mock/')
-  if (!r.ok) throw new Error('No se pudo cargar el tablero de demostración')
-  return r.json()
-}
-
 function buildQuery(params) {
   const qs = new URLSearchParams()
   Object.entries(params).forEach(([k, v]) => {

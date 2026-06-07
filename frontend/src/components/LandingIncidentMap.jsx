@@ -4,11 +4,36 @@ import { L } from '../map/leafletPlugins.js'
 import {
   fetchDashboardBarrios,
   fetchDashboardCatalogos,
+  fetchDashboardDensidadTerritorial,
   fetchDashboardChoroplethTerritorial,
   fetchDashboardHotspotsCuadricula,
+  fetchDashboardHotspotsRanking,
   fetchDashboardMapaDetalle,
   fetchDashboardRangoFechas,
 } from '../api/client.js'
+import {
+  buildFilterKey,
+  createEmptyBundle,
+  getMapBundle,
+  getSessionMeta,
+  isBundleWarmComplete,
+  listCachedFilterKeys,
+  setMapBundle,
+  setSessionMeta,
+} from '../map/mapPageCache.js'
+import {
+  fetchMissingMapLayer,
+  hasCachedViewLayer,
+  pickViewFromBundle,
+  warmFilterBundle,
+} from '../map/mapBundleLoader.js'
+import { MapAreaAnalisisPanel } from '../map/MapAreaAnalisisPanel.jsx'
+import { MapAreaOutline } from '../map/MapAreaOutline.jsx'
+import { MapAreaSelection } from '../map/MapAreaSelection.jsx'
+import {
+  ensureHotspotsGridPane,
+  setHotspotPanesInteractive,
+} from '../map/mapHotspotPanes.js'
 import { LandingCalidadTerritorio } from './LandingCalidadTerritorio.jsx'
 import { LandingGeoIndicators } from './LandingGeoIndicators.jsx'
 
@@ -39,6 +64,8 @@ const HOTSPOT_CELDA_OPTIONS = [
   { value: '300', label: '300 m — más detalle' },
   { value: '500', label: '500 m — más suave' },
 ]
+
+const HOTSPOT_CELDA_AREA_M = '100'
 
 const VIEW_MODES = [
   {
@@ -225,19 +252,36 @@ function ChoroplethLayer({ geojson, comunaId, barrioId, subdued = false }) {
   return null
 }
 
-function HotspotGridLayer({ geojson }) {
+function HotspotGridLayer({ geojson, editorBlocksMap = false }) {
   const map = useMap()
   useEffect(() => {
+    setHotspotPanesInteractive(map, !editorBlocksMap)
+    return () => setHotspotPanesInteractive(map, true)
+  }, [map, editorBlocksMap])
+
+  useEffect(() => {
     if (!geojson?.features?.length) return undefined
+    const mallaCompleta = Boolean(geojson.meta?.malla_completa)
     const maxD = Number(geojson.meta?.densidad_max_km2 || 0)
     const densities = geojson.features
       .map((f) => Number(f?.properties?.densidad_por_km2 || 0))
       .filter((d) => d > 0)
     const minD = densities.length ? Math.min(...densities) : 0
+    const gridPane = ensureHotspotsGridPane(map)
 
     const layer = L.geoJSON(geojson, {
+      pane: gridPane,
       style: (feature) => {
+        const conteo = Number(feature?.properties?.conteo || 0)
         const d = Number(feature?.properties?.densidad_por_km2 || 0)
+        if (mallaCompleta && conteo <= 0) {
+          return {
+            fillColor: '#cbd5e1',
+            fillOpacity: 0.72,
+            color: '#64748b',
+            weight: 0.85,
+          }
+        }
         return choroplethStyle(d, minD, maxD, d <= 0, false, 0.82)
       },
       onEachFeature: (feature, leafletLayer) => {
@@ -246,7 +290,9 @@ function HotspotGridLayer({ geojson }) {
           `<div class="landing-map-popup"><strong>Celda P14</strong><br/>` +
             `Incidentes: <strong>${escapeHtml(p.conteo)}</strong><br/>` +
             `Densidad: <strong>${fmtChoroplethVal(p.densidad_por_km2, 'densidad')}</strong> / km²<br/>` +
-            `Área celda: <strong>${fmtChoroplethVal(p.area_km2, 'densidad')}</strong> km²</div>`,
+            `Área celda: <strong>${fmtChoroplethVal(p.area_km2, 'densidad')}</strong> km²` +
+            (p.recortada ? '<br/><em>Recortada al polígono</em>' : '') +
+            `</div>`,
         )
       },
     })
@@ -413,7 +459,8 @@ function DetailPointsLayer({ puntos, showHeat, showMarkers, mapZoom }) {
   return null
 }
 
-export function LandingIncidentMap() {
+export function LandingIncidentMap({ variant = 'embedded' }) {
+  const isPage = variant === 'page'
   const compact = useViewportCompact()
 
   const [rangoMeta, setRangoMeta] = useState(null)
@@ -431,30 +478,46 @@ export function LandingIncidentMap() {
   const [mapLimite, setMapLimite] = useState(DEFAULT_MAP_LIMITE)
   const [tamanoCeldaM, setTamanoCeldaM] = useState('300')
   const [metodoHotspot, setMetodoHotspot] = useState('cuadricula')
+  const [areaSelectionGeojson, setAreaSelectionGeojson] = useState(null)
+  const [areaEditorPhase, setAreaEditorPhase] = useState('inactive')
   const [showAdvanced, setShowAdvanced] = useState(false)
 
   const [choroplethData, setChoroplethData] = useState(null)
   const [pointsData, setPointsData] = useState(null)
   const [hotspotsData, setHotspotsData] = useState(null)
   const [err, setErr] = useState(null)
-  const [initOk, setInitOk] = useState(false)
+  const [initOk, setInitOk] = useState(!isPage)
   const [loadingBase, setLoadingBase] = useState(false)
   const [loadingOverlay, setLoadingOverlay] = useState(false)
+  const [pageBlocking, setPageBlocking] = useState(isPage)
+  const [pageBlockingMsg, setPageBlockingMsg] = useState('Preparando mapa e indicadores…')
+  const [loadProgress, setLoadProgress] = useState(0)
+  const [cacheRevision, setCacheRevision] = useState(0)
+  const [calidadData, setCalidadData] = useState(null)
+  const [densidadData, setDensidadData] = useState(null)
+  const [rankingData, setRankingData] = useState(null)
+  const [indicatorsLoading, setIndicatorsLoading] = useState(false)
+  const [indicatorsErr, setIndicatorsErr] = useState(null)
+  const [nivelDensidad, setNivelDensidad] = useState('comuna')
   const [mapZoom, setMapZoom] = useState(DEFAULT_ZOOM)
   const [mapFocus, setMapFocus] = useState(null)
 
   const loadGenRef = useRef(0)
+  const areaSelectionRef = useRef(null)
+  const areaReloadRef = useRef(null)
+  const areaDismissedForGeojsonRef = useRef(null)
   const handleMapZoom = useCallback((z) => setMapZoom(z), [])
   const focusCellOnMap = useCallback((lat, lon) => {
     if (lat == null || lon == null) return
     setViewMode('cuadricula')
     setMapFocus({ lat: Number(lat), lon: Number(lon), zoom: 15, ts: Date.now() })
-    document.getElementById('landing-map-shell')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }, [])
+    const shellId = isPage ? 'map-page-shell' : 'landing-map-shell'
+    document.getElementById(shellId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [isPage])
 
   useEffect(() => {
     setMapFocus(null)
-  }, [desde, hasta, comunaId, barrioId, claseId, modoTerritorio, tamanoCeldaM, metodoHotspot])
+  }, [desde, hasta, comunaId, barrioId, claseId, modoTerritorio, tamanoCeldaM, metodoHotspot, areaSelectionGeojson])
 
   const showPointMarkers = mapZoom >= DETAIL_POINTS_MIN_ZOOM
   const showHeatLayer = mapZoom < DETAIL_POINTS_MIN_ZOOM
@@ -462,22 +525,256 @@ export function LandingIncidentMap() {
   const selMin = rangoMeta?.selector_fecha_min ?? FECHAS_REF_MEDE.selector_fecha_min
   const selMax = rangoMeta?.selector_fecha_max ?? FECHAS_REF_MEDE.selector_fecha_max
 
-  const buildBaseParams = useCallback(() => {
-    const comunaQ = queryId(comunaId)
-    const barrioQ = queryId(barrioId)
-    const claseQ = queryId(claseId)
-    return {
+  const buildBaseParams = useCallback(
+    (desdeOverride, hastaOverride) => {
+      const comunaQ = queryId(comunaId)
+      const barrioQ = queryId(barrioId)
+      const claseQ = queryId(claseId)
+      return {
+        desde: desdeOverride ?? desde,
+        hasta: hastaOverride ?? hasta,
+        ...(comunaQ !== undefined ? { comuna_id: comunaQ } : {}),
+        ...(barrioQ !== undefined ? { barrio_id: barrioQ } : {}),
+        ...(claseQ !== undefined ? { clase_incidente_id: claseQ } : {}),
+        ...(modoTerritorio === 'espacial' ? { territorio: 'espacial' } : {}),
+      }
+    },
+    [desde, hasta, comunaId, barrioId, claseId, modoTerritorio],
+  )
+
+  const uiViewState = useMemo(
+    () => ({
+      viewMode,
+      choroplethMetric,
+      mapLimite,
+      tamanoCeldaM,
+      metodoHotspot,
+      areaSelectionGeojson,
+      comunaId,
+      barrioId,
+      nivelDensidad,
+    }),
+    [
+      viewMode,
+      choroplethMetric,
+      mapLimite,
+      tamanoCeldaM,
+      metodoHotspot,
+      areaSelectionGeojson,
+      comunaId,
+      barrioId,
+      nivelDensidad,
+    ],
+  )
+
+  const handleAreaSelectionChange = useCallback((geom) => {
+    setAreaSelectionGeojson(geom)
+  }, [])
+
+  const handleAreaEditorPhaseChange = useCallback((phase) => {
+    setAreaEditorPhase(phase)
+    if (phase === 'draw') {
+      areaDismissedForGeojsonRef.current = null
+    }
+  }, [])
+
+  const areaEditorBlocksMap = areaEditorPhase === 'draw' || areaEditorPhase === 'adjust'
+
+  const handleClearAreaSelection = useCallback(() => {
+    areaSelectionRef.current?.clear()
+    areaReloadRef.current = null
+    areaDismissedForGeojsonRef.current = null
+    setAreaEditorPhase('inactive')
+    setAreaSelectionGeojson(null)
+    setHotspotsData(null)
+  }, [])
+
+  const applyBundleToState = useCallback(
+    (bundle) => {
+      const view = pickViewFromBundle(bundle, uiViewState)
+      setChoroplethData(view.choroplethData)
+      setPointsData(view.pointsData)
+      setHotspotsData(view.hotspotsData)
+      setCalidadData(view.calidadData)
+      setDensidadData(view.densidadData)
+      setRankingData(view.rankingData)
+    },
+    [uiViewState],
+  )
+
+  const ensureFilterBundleData = useCallback(
+    async ({ forceRefresh = false, showBlocking = true, fechaDesde, fechaHasta } = {}) => {
+      const d = fechaDesde ?? desde
+      const h = fechaHasta ?? hasta
+      if (!d || !h) return null
+
+      const fk = buildFilterKey({
+        desde: d,
+        hasta: h,
+        comunaId,
+        barrioId,
+        claseId,
+        modoTerritorio,
+      })
+
+      let bundle = getMapBundle(fk)
+      if (!forceRefresh && bundle && isBundleWarmComplete(bundle)) {
+        applyBundleToState(bundle)
+        setLoadProgress(100)
+        setPageBlockingMsg('Datos en caché')
+        if (showBlocking) setPageBlocking(false)
+        setInitOk(true)
+        setCacheRevision((n) => n + 1)
+        return bundle
+      }
+
+      if (showBlocking) {
+        setPageBlocking(true)
+        setLoadProgress(0)
+        setPageBlockingMsg('Iniciando precarga…')
+      }
+      setIndicatorsErr(null)
+
+      try {
+        let meta = getSessionMeta()
+        if (!meta?.rangoMeta) {
+          setPageBlockingMsg('Consultando periodo y catálogos…')
+          const [rango, cats] = await Promise.all([
+            fetchDashboardRangoFechas().catch(() => ({ ...FECHAS_REF_MEDE, hay_datos: false })),
+            fetchDashboardCatalogos().catch(() => ({ comunas: [], clases_incidente: [] })),
+          ])
+          meta = { rangoMeta: rango, catalogos: cats }
+          setSessionMeta(meta)
+          setRangoMeta(rango)
+          setCatalogos(cats)
+        }
+
+        const baseParams = buildBaseParams(d, h)
+        bundle = createEmptyBundle({
+          filterKey: fk,
+          desde: d,
+          hasta: h,
+          comunaId,
+          barrioId,
+          claseId,
+          modoTerritorio,
+        })
+
+        await warmFilterBundle(baseParams, bundle, {
+          onProgress: ({ percent, label }) => {
+            setLoadProgress(percent)
+            setPageBlockingMsg(label)
+          },
+        })
+
+        setMapBundle(bundle)
+        setCacheRevision((n) => n + 1)
+        if (fechaDesde) setDesde(fechaDesde)
+        if (fechaHasta) setHasta(fechaHasta)
+        applyBundleToState(bundle)
+        setErr(null)
+        setInitOk(true)
+        return bundle
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'No se pudo cargar el mapa'
+        setErr(msg)
+        setIndicatorsErr(msg)
+        return null
+      } finally {
+        if (showBlocking) setPageBlocking(false)
+      }
+    },
+    [
       desde,
       hasta,
-      ...(comunaQ !== undefined ? { comuna_id: comunaQ } : {}),
-      ...(barrioQ !== undefined ? { barrio_id: barrioQ } : {}),
-      ...(claseQ !== undefined ? { clase_incidente_id: claseQ } : {}),
-      ...(modoTerritorio === 'espacial' ? { territorio: 'espacial' } : {}),
-    }
-  }, [desde, hasta, comunaId, barrioId, claseId, modoTerritorio])
+      comunaId,
+      barrioId,
+      claseId,
+      modoTerritorio,
+      buildBaseParams,
+      applyBundleToState,
+    ],
+  )
+
+  const handleNivelDensidadChange = useCallback(
+    (nivel) => {
+      setNivelDensidad(nivel)
+      if (!isPage || !desde || !hasta || pageBlocking) return
+      const fk = buildFilterKey({ desde, hasta, comunaId, barrioId, claseId, modoTerritorio })
+      const bundle = getMapBundle(fk)
+      if (bundle?.densidad?.[nivel]) {
+        setDensidadData(bundle.densidad[nivel])
+        return
+      }
+      void (async () => {
+        setIndicatorsLoading(true)
+        setIndicatorsErr(null)
+        try {
+          const dens = await fetchDashboardDensidadTerritorial({
+            ...buildBaseParams(),
+            tamano_celda_m: Number(tamanoCeldaM) || 300,
+            nivel,
+            limite: 12,
+          })
+          if (bundle) {
+            bundle.densidad[nivel] = dens
+            setMapBundle(bundle)
+          }
+          setDensidadData(dens)
+        } catch (e) {
+          setIndicatorsErr(
+            e instanceof Error ? e.message : 'No se pudo actualizar densidad territorial',
+          )
+        } finally {
+          setIndicatorsLoading(false)
+        }
+      })()
+    },
+    [
+      isPage,
+      desde,
+      hasta,
+      pageBlocking,
+      buildBaseParams,
+      tamanoCeldaM,
+      comunaId,
+      barrioId,
+      claseId,
+      modoTerritorio,
+    ],
+  )
 
   const loadMap = useCallback(async () => {
     if (!desde || !hasta) return
+
+    if (isPage) {
+      const fk = buildFilterKey({ desde, hasta, comunaId, barrioId, claseId, modoTerritorio })
+      let bundle = getMapBundle(fk)
+      if (!bundle || !isBundleWarmComplete(bundle)) {
+        bundle = await ensureFilterBundleData({ forceRefresh: false, showBlocking: true })
+      }
+      if (!bundle) return
+
+      if (hasCachedViewLayer(bundle, uiViewState)) {
+        applyBundleToState(bundle)
+        return
+      }
+
+      setPageBlocking(true)
+      setLoadProgress(0)
+      setPageBlockingMsg('Cargando capa adicional…')
+      try {
+        await fetchMissingMapLayer(buildBaseParams(), bundle, uiViewState)
+        setMapBundle(bundle)
+        applyBundleToState(bundle)
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : 'No se pudo cargar la capa')
+      } finally {
+        setPageBlocking(false)
+      }
+      return
+    }
+
     const gen = loadGenRef.current + 1
     loadGenRef.current = gen
     setErr(null)
@@ -490,11 +787,15 @@ export function LandingIncidentMap() {
 
     try {
       if (viewMode === 'cuadricula') {
-        const hotspots = await fetchDashboardHotspotsCuadricula({
+        const hotspotParams = {
           ...baseParams,
           metodo: metodoHotspot,
           tamano_celda_m: Number(tamanoCeldaM) || 300,
-        })
+        }
+        if (metodoHotspot === 'area' && areaSelectionGeojson) {
+          hotspotParams.geojson = areaSelectionGeojson
+        }
+        const hotspots = await fetchDashboardHotspotsCuadricula(hotspotParams)
         if (loadGenRef.current !== gen) return
         setChoroplethData(null)
         setPointsData(null)
@@ -538,11 +839,18 @@ export function LandingIncidentMap() {
     buildBaseParams,
     comunaId,
     barrioId,
+    claseId,
+    modoTerritorio,
     viewMode,
     mapLimite,
     choroplethMetric,
     tamanoCeldaM,
     metodoHotspot,
+    areaSelectionGeojson,
+    isPage,
+    ensureFilterBundleData,
+    applyBundleToState,
+    uiViewState,
   ])
 
   useEffect(() => {
@@ -551,6 +859,114 @@ export function LandingIncidentMap() {
   }, [mapFocus?.ts, viewMode, desde, hasta, loadMap])
 
   useEffect(() => {
+    if (
+      viewMode !== 'cuadricula' ||
+      metodoHotspot !== 'area' ||
+      !areaSelectionGeojson ||
+      !desde ||
+      !hasta
+    ) {
+      return undefined
+    }
+    if (areaReloadRef.current === areaSelectionGeojson) return undefined
+    areaReloadRef.current = areaSelectionGeojson
+    if (isPage) void ensureFilterBundleData({ forceRefresh: false, showBlocking: false })
+    else void loadMap()
+    return undefined
+  }, [
+    areaSelectionGeojson,
+    viewMode,
+    metodoHotspot,
+    desde,
+    hasta,
+    isPage,
+    loadMap,
+    ensureFilterBundleData,
+  ])
+
+  useEffect(() => {
+    if (viewMode !== 'cuadricula' || metodoHotspot !== 'area') return undefined
+    if (!hotspotsData?.features?.length || !areaSelectionGeojson) return undefined
+    if (areaEditorPhase !== 'adjust') return undefined
+    if (areaDismissedForGeojsonRef.current === areaSelectionGeojson) return undefined
+    areaDismissedForGeojsonRef.current = areaSelectionGeojson
+    areaSelectionRef.current?.dismissEditor?.()
+    return undefined
+  }, [hotspotsData, areaSelectionGeojson, areaEditorPhase, viewMode, metodoHotspot])
+
+  const pageInitRef = useRef(false)
+  useEffect(() => {
+    if (!isPage || pageInitRef.current) return undefined
+    pageInitRef.current = true
+    void (async () => {
+      const meta = getSessionMeta()
+      let d = desde
+      let h = hasta
+      if (!meta?.rangoMeta) {
+        const [rango, cats] = await Promise.all([
+          fetchDashboardRangoFechas().catch(() => ({ ...FECHAS_REF_MEDE, hay_datos: false })),
+          fetchDashboardCatalogos().catch(() => ({ comunas: [], clases_incidente: [] })),
+        ])
+        setSessionMeta({ rangoMeta: rango, catalogos: cats })
+        setRangoMeta(rango)
+        setCatalogos(cats)
+        d = rango.default_desde || FECHAS_REF_MEDE.default_desde
+        h = rango.default_hasta || FECHAS_REF_MEDE.default_hasta
+        setDesde(d)
+        setHasta(h)
+      } else {
+        setRangoMeta(meta.rangoMeta)
+        setCatalogos(meta.catalogos)
+        if (!d) d = meta.rangoMeta?.default_desde || FECHAS_REF_MEDE.default_desde
+        if (!h) h = meta.rangoMeta?.default_hasta || FECHAS_REF_MEDE.default_hasta
+        setDesde(d)
+        setHasta(h)
+      }
+      await ensureFilterBundleData({ showBlocking: true, fechaDesde: d, fechaHasta: h })
+    })()
+    return undefined
+  }, [isPage, ensureFilterBundleData])
+
+  useEffect(() => {
+    if (!isPage || !initOk || pageBlocking || !desde || !hasta) return undefined
+    const fk = buildFilterKey({ desde, hasta, comunaId, barrioId, claseId, modoTerritorio })
+    const bundle = getMapBundle(fk)
+    if (!bundle || !isBundleWarmComplete(bundle)) return undefined
+    if (hasCachedViewLayer(bundle, uiViewState)) {
+      applyBundleToState(bundle)
+      return undefined
+    }
+    void (async () => {
+      setPageBlocking(true)
+      setLoadProgress(0)
+      try {
+        await fetchMissingMapLayer(buildBaseParams(), bundle, uiViewState)
+        setMapBundle(bundle)
+        applyBundleToState(bundle)
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : 'No se pudo cambiar la vista')
+      } finally {
+        setPageBlocking(false)
+      }
+    })()
+    return undefined
+  }, [
+    isPage,
+    initOk,
+    pageBlocking,
+    desde,
+    hasta,
+    uiViewState,
+    buildBaseParams,
+    applyBundleToState,
+    comunaId,
+    barrioId,
+    claseId,
+    modoTerritorio,
+  ])
+
+  useEffect(() => {
+    if (isPage) return undefined
     let alive = true
     ;(async () => {
       try {
@@ -584,7 +1000,7 @@ export function LandingIncidentMap() {
     return () => {
       alive = false
     }
-  }, [])
+  }, [isPage])
 
   useEffect(() => {
     if (!comunaId) {
@@ -601,10 +1017,29 @@ export function LandingIncidentMap() {
   const pointsMeta = pointsData?.meta
   const hasChoropleth = (choroplethData?.features?.length ?? 0) > 0
   const hasHotspots = (hotspotsData?.features?.length ?? 0) > 0
+  const showHotspotMapShell =
+    viewMode === 'cuadricula' && (hasHotspots || metodoHotspot === 'area')
   const hasMapLayers =
-    viewMode === 'cuadricula' ? hasHotspots : hasChoropleth || (viewMode === 'detalle' && puntos.length > 0)
-  const mapBusy = loadingBase || loadingOverlay
+    viewMode === 'cuadricula'
+      ? showHotspotMapShell
+      : hasChoropleth || (viewMode === 'detalle' && puntos.length > 0)
+  const mapBusy = loadingBase || loadingOverlay || (isPage && pageBlocking)
+  const interactionLocked = isPage && pageBlocking
   const currentViewHint = VIEW_MODES.find((m) => m.id === viewMode)?.hint ?? ''
+
+  const currentFilterKey = useMemo(
+    () =>
+      desde && hasta
+        ? buildFilterKey({ desde, hasta, comunaId, barrioId, claseId, modoTerritorio })
+        : '',
+    [desde, hasta, comunaId, barrioId, claseId, modoTerritorio, cacheRevision],
+  )
+
+  const filtersCached = useMemo(() => {
+    if (!currentFilterKey) return false
+    const bundle = getMapBundle(currentFilterKey)
+    return Boolean(bundle && isBundleWarmComplete(bundle))
+  }, [currentFilterKey, cacheRevision])
 
   const legendScale = useMemo(() => {
     if (viewMode === 'cuadricula' && hotspotsData?.features?.length) {
@@ -617,7 +1052,11 @@ export function LandingIncidentMap() {
         min: densities.length ? Math.min(...densities) : 0,
         max: Number(hotspotsData.meta?.densidad_max_km2 || 0),
         metrica: 'densidad',
-        note: 'Celdas sin incidentes no se muestran',
+        note: hotspotsData.meta?.malla_completa
+          ? 'Gris = celda sin incidentes · color = densidad'
+          : hotspotsData.meta?.celdas_recortadas
+            ? 'Celdas recortadas al polígono · sin incidentes no se muestran'
+            : 'Celdas sin incidentes no se muestran',
       }
     }
     if (viewMode === 'detalle' && showHeatLayer && puntos.length > 0) {
@@ -641,9 +1080,20 @@ export function LandingIncidentMap() {
   const statusLine = useMemo(() => {
     const parts = [`${desde} → ${hasta}`]
     if (viewMode === 'cuadricula') {
-      parts.push(`Hotspots P14 · celda ${tamanoCeldaM} m`)
+      parts.push(
+        metodoHotspot === 'area'
+          ? 'Hotspots P14 · área dibujada · celda 100 m'
+          : `Hotspots P14 · celda ${tamanoCeldaM} m`,
+      )
       if (hotspotsData?.meta) {
-        parts.push(`${hotspotsData.meta.celdas_devueltas ?? 0} celdas`)
+        const m = hotspotsData.meta
+        if (m.malla_completa) {
+          parts.push(
+            `${m.celdas_con_incidentes ?? 0} con datos · ${m.celdas_devueltas ?? 0} en malla`,
+          )
+        } else {
+          parts.push(`${m.celdas_devueltas ?? 0} celdas`)
+        }
       }
       return parts.join(' · ')
     }
@@ -654,9 +1104,9 @@ export function LandingIncidentMap() {
       parts.push(`${pointsMeta.puntos_devueltos?.toLocaleString('es-CO') ?? 0} puntos`)
     }
     return parts.join(' · ')
-  }, [desde, hasta, choroplethMeta, viewMode, pointsMeta, hotspotsData, tamanoCeldaM])
+  }, [desde, hasta, choroplethMeta, viewMode, pointsMeta, hotspotsData, tamanoCeldaM, metodoHotspot])
 
-  if (!initOk) {
+  if (!initOk && !isPage) {
     return (
       <div className="landing-map-shell landing-map-loading muted" role="status">
         Preparando mapa…
@@ -666,6 +1116,38 @@ export function LandingIncidentMap() {
 
   return (
     <>
+      {isPage && pageBlocking && (
+        <div
+          className="map-page-blocking-overlay"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="map-page-blocking-title"
+          aria-describedby="map-page-blocking-desc"
+        >
+          <div className="map-page-blocking-card">
+            <h2 id="map-page-blocking-title">Cargando sección mapa</h2>
+            <p id="map-page-blocking-desc" className="muted small">
+              {pageBlockingMsg}
+            </p>
+            <div className="map-page-progress" role="progressbar" aria-valuenow={loadProgress} aria-valuemin={0} aria-valuemax={100}>
+              <div className="map-page-progress-track">
+                <div className="map-page-progress-fill" style={{ width: `${loadProgress}%` }} />
+              </div>
+              <span className="map-page-progress-pct">{loadProgress}%</span>
+            </div>
+            <p className="muted small">
+              Precarga de capas e indicadores en caché. Los cambios de vista y métrica posteriores serán
+              instantáneos si ya están guardados ({listCachedFilterKeys().length} combinación
+              {listCachedFilterKeys().length === 1 ? '' : 'es'} de filtros en memoria).
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div
+        className={`landing-map-page-root${isPage ? ' is-page-variant' : ''}${interactionLocked ? ' is-interaction-locked' : ''}`}
+        inert={interactionLocked ? true : undefined}
+      >
       <div className="landing-map-workspace">
         <aside className="landing-map-sidebar panel">
           <h3 className="landing-map-sidebar-title">Explorar mapa</h3>
@@ -745,8 +1227,8 @@ export function LandingIncidentMap() {
             <p className="muted small landing-map-mode-hint">{currentViewHint}</p>
             {viewMode === 'cuadricula' && (
               <p className="muted small landing-map-mode-detail">
-                Celdas de 300–500 m coloreadas por densidad. Localiza tramos concretos que en Territorio se diluyen al
-                promediar toda la comuna. Filtre por comuna, compare ambos modos y haga clic en una celda.
+                Celdas de 300–500 m coloreadas por densidad. En «Área en mapa», use el control del mapa para dibujar un
+                polígono y acotar el análisis. Compare con Territorio y haga clic en una celda del ranking.
               </p>
             )}
             {viewMode !== 'cuadricula' && (
@@ -787,23 +1269,64 @@ export function LandingIncidentMap() {
             )}
             {viewMode === 'cuadricula' && (
               <>
-                <label className="filter-field">
-                  Tamaño celda (m)
-                  <select value={tamanoCeldaM} onChange={(e) => setTamanoCeldaM(e.target.value)}>
-                    {HOTSPOT_CELDA_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                {metodoHotspot === 'cuadricula' ? (
+                  <label className="filter-field">
+                    Tamaño celda (m)
+                    <select value={tamanoCeldaM} onChange={(e) => setTamanoCeldaM(e.target.value)}>
+                      {HOTSPOT_CELDA_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <p className="muted small landing-map-area-cell-note">
+                    Resolución fija en modo área: <strong>100 m</strong> (mayor detalle dentro del polígono).
+                  </p>
+                )}
                 <label className="filter-field">
                   Método
-                  <select value={metodoHotspot} onChange={(e) => setMetodoHotspot(e.target.value)}>
-                    <option value="cuadricula">Cuadrícula</option>
-                    <option value="dbscan">DBSCAN</option>
+                  <select
+                    value={metodoHotspot}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setMetodoHotspot(v)
+                      if (v === 'area') {
+                        setTamanoCeldaM(HOTSPOT_CELDA_AREA_M)
+                      } else {
+                        setAreaSelectionGeojson(null)
+                        setAreaEditorPhase('inactive')
+                        areaDismissedForGeojsonRef.current = null
+                        if (tamanoCeldaM === HOTSPOT_CELDA_AREA_M) setTamanoCeldaM('300')
+                      }
+                    }}
+                  >
+                    <option value="cuadricula">Cuadrícula (filtros)</option>
+                    <option value="area">Área en mapa</option>
                   </select>
                 </label>
+                {metodoHotspot === 'area' && (
+                  <>
+                    <p className="muted small landing-map-area-hint">
+                      <strong>Dibujar libre:</strong> botón del mapa → clics para cada vértice → cierre en el punto
+                      verde (o arrastre para un rectángulo) → «Cargar / actualizar filtros». Al cargar, se oculta el
+                      editor azul y se ven las celdas.
+                      <br />
+                      <strong>Borrar:</strong> botón del mapa o «Borrar área» abajo.
+                    </p>
+                    {areaSelectionGeojson && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary landing-map-area-clear"
+                        onClick={handleClearAreaSelection}
+                        disabled={mapBusy}
+                      >
+                        Borrar área
+                      </button>
+                    )}
+                  </>
+                )}
               </>
             )}
           </details>
@@ -811,10 +1334,17 @@ export function LandingIncidentMap() {
           <button
             type="button"
             className="btn btn-primary landing-map-apply"
-            onClick={() => void loadMap()}
+            onClick={() => {
+              if (isPage) void ensureFilterBundleData({ forceRefresh: false, showBlocking: true })
+              else void loadMap()
+            }}
             disabled={mapBusy || !desde || !hasta}
           >
-            {mapBusy ? 'Actualizando…' : 'Actualizar mapa'}
+            {mapBusy
+              ? 'Actualizando…'
+              : isPage && filtersCached
+                ? 'Aplicar filtros (caché)'
+                : 'Cargar / actualizar filtros'}
           </button>
         </aside>
 
@@ -828,13 +1358,28 @@ export function LandingIncidentMap() {
             </div>
           )}
 
+          {viewMode === 'cuadricula' && metodoHotspot === 'area' && areaSelectionGeojson && (
+            <MapAreaAnalisisPanel
+              resumen={hotspotsData?.meta?.area_resumen}
+              loading={mapBusy && !hotspotsData?.meta?.area_resumen}
+            />
+          )}
+
           <div className="landing-map-view-wrap">
             {!hasMapLayers && !mapBusy ? (
               <div className="landing-map-shell landing-map-empty muted" role="status">
-                Sin datos para estos filtros. Amplíe el periodo o quite filtros.
+                {hotspotsData?.meta?.malla_area_excedida
+                  ? hotspotsData.meta.descripcion
+                  : viewMode === 'cuadricula' && metodoHotspot === 'area'
+                    ? 'Dibuje un área en el mapa (control de selección) y aplique los filtros.'
+                    : 'Sin datos para estos filtros. Amplíe el periodo o quite filtros.'}
               </div>
             ) : (
-              <div className="landing-map-shell" id="landing-map-shell" aria-label="Mapa de concentración de incidentes">
+              <div
+                className="landing-map-shell"
+                id={isPage ? 'map-page-shell' : 'landing-map-shell'}
+                aria-label="Mapa de concentración de incidentes"
+              >
                 {legendScale && (
                   <div
                     className={`landing-map-legend-card${legendScale.kind === 'heat' ? ' is-compact' : ''}`}
@@ -903,9 +1448,18 @@ export function LandingIncidentMap() {
                   )}
                   {viewMode === 'cuadricula' && hasHotspots && (
                     <>
-                      <HotspotGridLayer geojson={hotspotsData} />
+                      <HotspotGridLayer
+                        geojson={hotspotsData}
+                        editorBlocksMap={metodoHotspot === 'area' && areaEditorBlocksMap}
+                      />
+                      {metodoHotspot === 'area' && areaSelectionGeojson && (
+                        <MapAreaOutline geometryJson={areaSelectionGeojson} />
+                      )}
                       <MapFitBoundsOnce geojson={hotspotsData} enabled={!mapFocus} />
                     </>
+                  )}
+                  {viewMode === 'cuadricula' && metodoHotspot === 'area' && areaSelectionGeojson && !hasHotspots && (
+                    <MapAreaOutline geometryJson={areaSelectionGeojson} />
                   )}
                   {viewMode === 'detalle' && puntos.length > 0 && (
                     <DetailPointsLayer
@@ -913,6 +1467,14 @@ export function LandingIncidentMap() {
                       showHeat={showHeatLayer}
                       showMarkers={showPointMarkers}
                       mapZoom={mapZoom}
+                    />
+                  )}
+                  {viewMode === 'cuadricula' && metodoHotspot === 'area' && showHotspotMapShell && (
+                    <MapAreaSelection
+                      ref={areaSelectionRef}
+                      enabled
+                      onAreaChange={handleAreaSelectionChange}
+                      onPhaseChange={handleAreaEditorPhaseChange}
                     />
                   )}
                 </MapContainer>
@@ -929,7 +1491,11 @@ export function LandingIncidentMap() {
         barrioId={barrioId}
         claseId={claseId}
         modoTerritorio={modoTerritorio}
-        enabled={initOk}
+        enabled={initOk && !interactionLocked}
+        controlled={isPage}
+        externalData={isPage ? calidadData : null}
+        externalLoading={isPage ? indicatorsLoading || pageBlocking : false}
+        externalErr={isPage ? indicatorsErr : null}
       />
 
       <LandingGeoIndicators
@@ -940,9 +1506,17 @@ export function LandingIncidentMap() {
         claseId={claseId}
         modoTerritorio={modoTerritorio}
         tamanoCeldaM={tamanoCeldaM}
-        enabled={initOk}
+        enabled={initOk && !interactionLocked}
         onFocusCell={focusCellOnMap}
+        controlled={isPage}
+        externalDensidad={isPage ? densidadData : null}
+        externalRanking={isPage ? rankingData : null}
+        externalLoading={isPage ? indicatorsLoading || pageBlocking : false}
+        externalErr={isPage ? indicatorsErr : null}
+        nivelDensidad={isPage ? nivelDensidad : undefined}
+        onNivelDensidadChange={isPage ? handleNivelDensidadChange : undefined}
       />
+      </div>
     </>
   )
 }

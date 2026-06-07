@@ -59,7 +59,7 @@ AGENTS.md
 # Toda la carpeta docs/ (Markdown, prompts, SQL de trabajo, diagramas privados)
 docs/
 
-# Markdown suelto fuera de docs/ (bitácoras, árboles, notas)
+# Markdown suelto fuera de docs/ (estudio, bitácora, guías — no publicar)
 **/*.md
 !README.md
 

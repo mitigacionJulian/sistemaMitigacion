@@ -30,6 +30,10 @@ export function LandingCalidadTerritorio({
   claseId,
   modoTerritorio,
   enabled,
+  controlled = false,
+  externalData = null,
+  externalLoading = false,
+  externalErr = null,
 }) {
   const sectionRef = useRef(null)
   const inView = useInView(sectionRef)
@@ -37,7 +41,12 @@ export function LandingCalidadTerritorio({
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState(null)
 
+  const displayData = controlled ? externalData : data
+  const displayLoading = controlled ? externalLoading : loading
+  const displayErr = controlled ? externalErr : err
+
   useEffect(() => {
+    if (controlled) return undefined
     if (!enabled || !inView || !desde || !hasta) return
 
     let alive = true
@@ -72,10 +81,10 @@ export function LandingCalidadTerritorio({
       alive = false
       window.clearTimeout(t)
     }
-  }, [desde, hasta, comunaId, barrioId, claseId, modoTerritorio, enabled, inView])
+  }, [desde, hasta, comunaId, barrioId, claseId, modoTerritorio, enabled, inView, controlled])
 
-  const meta = data?.meta
-  const ejemplos = data?.ejemplos_discrepancia ?? []
+  const meta = displayData?.meta
+  const ejemplos = displayData?.ejemplos_discrepancia ?? []
 
   return (
     <section ref={sectionRef} className="landing-g03 panel" aria-labelledby="landing-g03-title">
@@ -86,18 +95,18 @@ export function LandingCalidadTerritorio({
         el texto del CSV no coincide con el límite cartográfico.
       </p>
 
-      {loading && !meta && (
+      {displayLoading && !meta && (
         <p className="muted small" role="status">
           Calculando calidad territorial…
         </p>
       )}
-      {err && <p className="form-error">{err}</p>}
+      {displayErr && <p className="form-error">{displayErr}</p>}
 
       {meta && (
         <>
           <p className="muted small landing-g03-period">
             Periodo: <strong>{meta.fecha_inicio}</strong> → <strong>{meta.fecha_fin}</strong>
-            {loading ? ' · actualizando…' : null}
+            {displayLoading ? ' · actualizando…' : null}
           </p>
 
           <div className="landing-g03-stats" role="list">

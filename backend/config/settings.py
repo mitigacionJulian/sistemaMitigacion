@@ -26,7 +26,7 @@ SECRET_KEY = _env("DJANGO_SECRET_KEY", required=True)
 
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
 
-# PostGIS / GeoDjango (F0). En Windows puede requerir GDAL instalado (ver POSTGIS_INICIO.md).
+# PostGIS / GeoDjango (F0). En Windows puede requerir GDAL (ver docs/MANUAL_INSTALACION_EJECUCION.md §4.3).
 USE_POSTGIS = os.environ.get("DJANGO_USE_POSTGIS", "1") == "1"
 if USE_POSTGIS:
     _gdal = os.environ.get("GDAL_LIBRARY_PATH")
@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "accounts",
     "dashboard",
+    "agent",
 ]
 
 MIDDLEWARE = [
@@ -125,6 +126,13 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Cache en memoria para coroplética / P14 / mapa-detalle (segundos). 0 = desactivado.
 MAP_API_CACHE_TTL = int(os.environ.get("MAP_API_CACHE_TTL", "3600"))
+
+# --- Asistente IA (Gemini) ---
+GEMINI_API_KEY = _env("GEMINI_API_KEY", default="")
+AGENT_MODEL_FLASH = _env("AGENT_MODEL_FLASH", default="gemini-2.5-flash")
+AGENT_MODEL_FLASH_LITE = _env("AGENT_MODEL_FLASH_LITE", default="gemini-2.5-flash-lite")
+AGENT_CACHE_TTL = int(os.environ.get("AGENT_CACHE_TTL", "86400"))
+AGENT_DAILY_LIMIT_PER_IP = int(os.environ.get("AGENT_DAILY_LIMIT_PER_IP", "40"))
 
 CACHES = {
     "default": {

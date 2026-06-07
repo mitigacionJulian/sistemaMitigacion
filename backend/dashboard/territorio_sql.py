@@ -127,6 +127,27 @@ def nota_modo_territorio(modo: str) -> str | None:
     return None
 
 
+def parse_filtro_geojson(raw: str | None) -> str | None:
+    """Normaliza geometría Polygon/MultiPolygon (o Feature) para ST_GeomFromGeoJSON."""
+    import json
+
+    if raw is None or not str(raw).strip():
+        return None
+    try:
+        obj = json.loads(str(raw).strip())
+    except json.JSONDecodeError as exc:
+        raise ValueError("geojson") from exc
+    if obj.get("type") == "Feature":
+        geom = obj.get("geometry")
+    elif obj.get("type") in ("Polygon", "MultiPolygon"):
+        geom = obj
+    else:
+        raise ValueError("geojson")
+    if not geom or geom.get("type") not in ("Polygon", "MultiPolygon"):
+        raise ValueError("geojson")
+    return json.dumps(geom, separators=(",", ":"))
+
+
 def parse_bbox(raw: str | None) -> tuple[float, float, float, float] | None:
     """Legacy G05 — omitido del producto; filtros comuna/barrio cubren el alcance."""
     if raw is None or not str(raw).strip():

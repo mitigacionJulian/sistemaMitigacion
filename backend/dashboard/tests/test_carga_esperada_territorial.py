@@ -46,7 +46,7 @@ def test_carga_terciles():
 
 
 @pytest.mark.django_db
-def test_api_carga_esperada_ok():
+def test_api_carga_esperada_ok(analista_client):
     fake = {
         "meta": {"nivel": "comuna", "sin_datos": False, "horizonte_meses": 3},
         "ranking": [
@@ -59,8 +59,7 @@ def test_api_carga_esperada_ok():
         ],
     }
     with patch("dashboard.views.build_carga_esperada_payload", return_value=fake):
-        c = APIClient()
-        r = c.get(
+        r = analista_client.get(
             reverse("dashboard-carga-esperada-territorial"),
             {
                 "desde": "2021-01-01",

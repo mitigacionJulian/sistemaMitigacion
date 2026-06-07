@@ -44,16 +44,32 @@ export function LandingGeoIndicators({
   tamanoCeldaM,
   enabled,
   onFocusCell,
+  controlled = false,
+  externalDensidad = null,
+  externalRanking = null,
+  externalLoading = false,
+  externalErr = null,
+  nivelDensidad: nivelDensidadProp,
+  onNivelDensidadChange,
 }) {
   const sectionRef = useRef(null)
   const inView = useInView(sectionRef)
-  const [nivelDensidad, setNivelDensidad] = useState('comuna')
+  const [nivelDensidadLocal, setNivelDensidadLocal] = useState('comuna')
   const [densidad, setDensidad] = useState(null)
   const [ranking, setRanking] = useState(null)
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState(null)
 
+  const nivelDensidad = controlled && nivelDensidadProp != null ? nivelDensidadProp : nivelDensidadLocal
+  const setNivelDensidad = controlled && onNivelDensidadChange ? onNivelDensidadChange : setNivelDensidadLocal
+
+  const displayDensidad = controlled ? externalDensidad : densidad
+  const displayRanking = controlled ? externalRanking : ranking
+  const displayLoading = controlled ? externalLoading : loading
+  const displayErr = controlled ? externalErr : err
+
   useEffect(() => {
+    if (controlled) return undefined
     if (!enabled || !inView || !desde || !hasta) return
 
     let alive = true
@@ -102,19 +118,20 @@ export function LandingGeoIndicators({
     nivelDensidad,
     enabled,
     inView,
+    controlled,
   ])
 
-  const densMeta = densidad?.meta
-  const rankMeta = ranking?.meta
+  const densMeta = displayDensidad?.meta
+  const rankMeta = displayRanking?.meta
 
   return (
     <div ref={sectionRef} className="landing-geo-stack">
-      {loading && !densMeta && (
+      {displayLoading && !densMeta && (
         <p className="muted small" role="status">
           Cargando indicadores G01–G02 y G06…
         </p>
       )}
-      {err && <p className="form-error">{err}</p>}
+      {displayErr && <p className="form-error">{displayErr}</p>}
 
       <section className="landing-g03 panel" aria-labelledby="landing-g01-title">
         <h3 id="landing-g01-title">Densidad territorial (G01–G02)</h3>
@@ -134,9 +151,9 @@ export function LandingGeoIndicators({
             <p className="muted small landing-g03-period">
               Densidad ciudad: <strong>{fmtNum(densMeta.densidad_ciudad_km2)}</strong> inc./km² ·{' '}
               {densMeta.territorios_devueltos} territorios en ranking
-              {loading ? ' · actualizando…' : null}
+              {displayLoading ? ' · actualizando…' : null}
             </p>
-            {(densidad?.ranking ?? []).length === 0 ? (
+            {(displayDensidad?.ranking ?? []).length === 0 ? (
               <p className="muted small">Sin territorios con incidentes y polígono para estos filtros.</p>
             ) : (
               <div className="cmp-table-wrap">
@@ -151,7 +168,7 @@ export function LandingGeoIndicators({
                     </tr>
                   </thead>
                   <tbody>
-                    {densidad.ranking.map((row) => (
+                    {displayDensidad.ranking.map((row) => (
                       <tr key={row.territorio_id}>
                         <td>{row.rank}</td>
                         <td>
@@ -181,7 +198,7 @@ export function LandingGeoIndicators({
         </p>
         {rankMeta && (
           <>
-            {(ranking?.ranking ?? []).length === 0 ? (
+            {(displayRanking?.ranking ?? []).length === 0 ? (
               <p className="muted small">Sin celdas con incidentes en este periodo.</p>
             ) : (
               <div className="cmp-table-wrap">
@@ -195,7 +212,7 @@ export function LandingGeoIndicators({
                     </tr>
                   </thead>
                   <tbody>
-                    {ranking.ranking.map((row) => (
+                    {displayRanking.ranking.map((row) => (
                       <tr key={row.rank}>
                         <td>{row.rank}</td>
                         <td>{fmtNum(row.conteo, 0)}</td>

@@ -21,7 +21,6 @@ from .patrones_temporales_proyectados import (
     build_dia_semana_proyectado_payload,
     build_matriz_dia_hora_proyectada_payload,
 )
-from .mock_data import get_dashboard_mock
 from .por_dia_semana import build_dia_semana_payload
 from .calidad_territorio import build_calidad_territorio_payload
 from .choropleth_territorial import (
@@ -34,13 +33,12 @@ from .densidad_territorial import build_densidad_territorial_payload, clamp_limi
 from .hotspots import (
     build_hotspots_payload,
     build_hotspots_ranking_payload,
-    clamp_dbscan_eps_m,
-    clamp_dbscan_minpoints,
     clamp_limite_celdas,
     clamp_limite_ranking_g06,
     clamp_tamano_celda_m,
     parse_metodo_hotspot,
 )
+from .territorio_sql import parse_filtro_geojson
 from .carga_esperada_espacial import build_carga_espacial_payload
 from .carga_esperada_territorial import build_carga_esperada_payload
 from .predicciones_mensuales import (
@@ -134,12 +132,6 @@ def dashboard_rango_fechas_view(request):
             "referencia_fuente": None,
         }
     )
-
-
-@api_view(["GET"])
-@permission_classes([AllowAny])
-def dashboard_mock_view(request):
-    return Response(get_dashboard_mock())
 
 
 def _parse_date(qs, key: str, default):
@@ -1110,11 +1102,11 @@ def dashboard_incidentes_mapa_view(request):
 @permission_classes([AllowAny])
 def dashboard_hotspots_cuadricula_view(request):
     """
-    F4 / P14 — Hotspots espaciales (cuadrícula PostGIS o DBSCAN).
+    F4 / P14 — Hotspots espaciales (cuadrícula PostGIS, opcional polígono).
 
-    Query: desde, hasta, filtros territorio, metodo=cuadricula|dbscan,
+    Query: desde, hasta, filtros territorio, metodo=cuadricula|area,
     tamano_celda_m (50–2000, default 300), limite_celdas (1–2000, default 800),
-    dbscan_eps_m, dbscan_minpoints.
+    geojson (geometría Polygon/MultiPolygon para modo area).
     """
     today = date.today()
     default_desde = date(today.year, 1, 1)
@@ -1125,17 +1117,16 @@ def dashboard_hotspots_cuadricula_view(request):
         hasta = _parse_date(request.GET, "hasta", default_hasta)
         filtros = _parse_filtros_kpi(request.GET)
         metodo = parse_metodo_hotspot(request.GET.get("metodo"))
-        tamano_celda_m = clamp_tamano_celda_m(request.GET.get("tamano_celda_m"))
+        tamano_celda_m = clamp_tamano_celda_m(
+            request.GET.get("tamano_celda_m"), metodo=metodo
+        )
         limite_celdas = clamp_limite_celdas(
             int(request.GET["limite_celdas"]) if request.GET.get("limite_celdas") else None
         )
-        dbscan_eps_m = clamp_dbscan_eps_m(request.GET.get("dbscan_eps_m"))
-        dbscan_minpoints = clamp_dbscan_minpoints(
-            int(request.GET["dbscan_minpoints"]) if request.GET.get("dbscan_minpoints") else None
-        )
+        geojson = parse_filtro_geojson(request.GET.get("geojson"))
     except (ValueError, TypeError):
         return Response(
-            {"detail": "Parámetros de fecha, id o hotspots inválidos."},
+            {"detail": "Parámetros de fecha, id, geojson o hotspots inválidos."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -1153,8 +1144,7 @@ def dashboard_hotspots_cuadricula_view(request):
             metodo=metodo,
             tamano_celda_m=tamano_celda_m,
             limite_celdas=limite_celdas,
-            dbscan_eps_m=dbscan_eps_m,
-            dbscan_minpoints=dbscan_minpoints,
+            geojson=geojson,
         )
     except DatabaseError as exc:
         payload = {

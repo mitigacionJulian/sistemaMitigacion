@@ -55,6 +55,12 @@ export function Layout() {
           <NavLink to="/tablero" className={navClass} onClick={closeNav}>
             Tablero
           </NavLink>
+          <NavLink to="/mapa" className={navClass} onClick={closeNav}>
+            Mapa
+          </NavLink>
+          <NavLink to="/agente" className={navClass} onClick={closeNav}>
+            Asistente
+          </NavLink>
           {(!user || isAnalista) && (
             <NavLink to="/predicciones" className={navClass} onClick={closeNav}>
               Predicciones

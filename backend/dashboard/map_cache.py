@@ -53,8 +53,7 @@ def hotspots_cache_key(
     metodo: str,
     tamano_celda_m: float,
     limite_celdas: int,
-    dbscan_eps_m: float,
-    dbscan_minpoints: int,
+    geojson_fp: str = "",
 ) -> str:
     return map_cache_key(
         "hotspots",
@@ -64,8 +63,8 @@ def hotspots_cache_key(
         metodo=metodo,
         tamano=tamano_celda_m,
         limite=limite_celdas,
-        eps=dbscan_eps_m,
-        minpts=dbscan_minpoints,
+        geojson=geojson_fp or "none",
+        malla="m2" if metodo == "area" else "std",
     )
 
 

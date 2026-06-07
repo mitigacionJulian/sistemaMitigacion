@@ -5,10 +5,12 @@ import { RouteErrorBoundary } from './components/RouteErrorBoundary.jsx'
 import { AuthProvider } from './context/AuthContext.jsx'
 import { Dashboard } from './pages/Dashboard.jsx'
 import { Landing } from './pages/Landing.jsx'
+import { Mapa } from './pages/Mapa.jsx'
 import { Login } from './pages/Login.jsx'
 import { Register } from './pages/Register.jsx'
 import { RecoverPasswordGate } from './pages/RecoverPasswordGate.jsx'
 import { RequireAnalista } from './components/RequireAnalista.jsx'
+import { Agente } from './pages/Agente.jsx'
 
 const Predicciones = lazy(() =>
   import('./pages/Predicciones.jsx').then((m) => ({ default: m.Predicciones })),
@@ -21,7 +23,9 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Layout />}>
             <Route index element={<Landing />} />
+            <Route path="mapa" element={<Mapa />} />
             <Route path="tablero" element={<Dashboard />} />
+            <Route path="agente" element={<Agente />} />
             <Route
               path="predicciones"
               element={

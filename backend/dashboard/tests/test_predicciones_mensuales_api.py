@@ -2,11 +2,10 @@ from unittest.mock import patch
 
 import pytest
 from django.urls import reverse
-from rest_framework.test import APIClient
 
 
 @pytest.mark.django_db
-def test_dashboard_predicciones_mensuales_ok():
+def test_dashboard_predicciones_mensuales_ok(analista_client):
     fake = {
         "meta": {
             "fecha_inicio": "2021-01-01",
@@ -22,8 +21,7 @@ def test_dashboard_predicciones_mensuales_ok():
         "proyeccion": [{"mes_clave": "2021-04", "mes_etiqueta": "abr 2021", "incidentes_proyectados": 1.0}],
     }
     with patch("dashboard.views.build_predicciones_mensuales_payload", return_value=fake):
-        c = APIClient()
-        r = c.get(
+        r = analista_client.get(
             reverse("dashboard-predicciones-mensuales"),
             {"desde": "2021-01-01", "hasta": "2021-03-31", "horizonte_meses": "3"},
         )
@@ -32,9 +30,8 @@ def test_dashboard_predicciones_mensuales_ok():
 
 
 @pytest.mark.django_db
-def test_dashboard_predicciones_rango_invalido():
-    c = APIClient()
-    r = c.get(
+def test_dashboard_predicciones_rango_invalido(analista_client):
+    r = analista_client.get(
         reverse("dashboard-predicciones-mensuales"),
         {"desde": "2021-05-01", "hasta": "2021-01-01"},
     )
@@ -42,7 +39,7 @@ def test_dashboard_predicciones_rango_invalido():
 
 
 @pytest.mark.django_db
-def test_dashboard_predicciones_parametros_fase_a():
+def test_dashboard_predicciones_parametros_fase_a(analista_client):
     fake = {
         "meta": {
             "modelo": "estacional",
@@ -53,8 +50,7 @@ def test_dashboard_predicciones_parametros_fase_a():
         "proyeccion": [],
     }
     with patch("dashboard.views.build_predicciones_mensuales_payload", return_value=fake) as build:
-        c = APIClient()
-        r = c.get(
+        r = analista_client.get(
             reverse("dashboard-predicciones-mensuales"),
             {
                 "desde": "2021-01-01",
@@ -71,9 +67,8 @@ def test_dashboard_predicciones_parametros_fase_a():
 
 
 @pytest.mark.django_db
-def test_dashboard_predicciones_desglose_con_clase_conflict():
-    c = APIClient()
-    r = c.get(
+def test_dashboard_predicciones_desglose_con_clase_conflict(analista_client):
+    r = analista_client.get(
         reverse("dashboard-predicciones-mensuales"),
         {
             "desde": "2021-01-01",
@@ -86,9 +81,8 @@ def test_dashboard_predicciones_desglose_con_clase_conflict():
 
 
 @pytest.mark.django_db
-def test_dashboard_predicciones_modelo_invalido():
-    c = APIClient()
-    r = c.get(
+def test_dashboard_predicciones_modelo_invalido(analista_client):
+    r = analista_client.get(
         reverse("dashboard-predicciones-mensuales"),
         {
             "desde": "2021-01-01",

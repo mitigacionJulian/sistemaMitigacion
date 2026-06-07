@@ -99,7 +99,7 @@ def test_dia_semana_proyectado_siete_dias(mock_dia, _mock_total):
 
 
 @pytest.mark.django_db
-def test_api_matriz_dia_hora_proyectada_ok():
+def test_api_matriz_dia_hora_proyectada_ok(analista_client):
     fake = {
         "meta": {"sin_datos": False, "horizonte_meses": 3},
         "serie": [{"dia_semana": 1, "hora": 8, "incidentes_proyectados_horizonte": 5}],
@@ -108,8 +108,7 @@ def test_api_matriz_dia_hora_proyectada_ok():
         "dashboard.views.build_matriz_dia_hora_proyectada_payload",
         return_value=fake,
     ):
-        c = APIClient()
-        r = c.get(
+        r = analista_client.get(
             reverse("dashboard-matriz-dia-hora-proyectada"),
             {"desde": "2021-01-01", "hasta": "2021-09-30", "horizonte_meses": 3},
         )
@@ -118,9 +117,8 @@ def test_api_matriz_dia_hora_proyectada_ok():
 
 
 @pytest.mark.django_db
-def test_api_dia_semana_proyectado_rango_invalido():
-    c = APIClient()
-    r = c.get(
+def test_api_dia_semana_proyectado_rango_invalido(analista_client):
+    r = analista_client.get(
         reverse("dashboard-por-dia-semana-proyectado"),
         {"desde": "2021-10-01", "hasta": "2021-09-30"},
     )

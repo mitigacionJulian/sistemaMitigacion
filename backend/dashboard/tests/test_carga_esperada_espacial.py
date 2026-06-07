@@ -46,15 +46,14 @@ def test_series_territorial_top():
 
 
 @pytest.mark.django_db
-def test_api_carga_espacial_ok():
+def test_api_carga_espacial_ok(analista_client):
     fake = {
         "meta": {"fase": "C", "tipo": "ranking_via", "sin_datos": False},
         "series": [],
         "ranking": [{"rank": 1, "via_id": 1, "carga_proyectada_horizonte": 20.0}],
     }
     with patch("dashboard.views.build_carga_espacial_payload", return_value=fake):
-        c = APIClient()
-        r = c.get(
+        r = analista_client.get(
             reverse("dashboard-carga-esperada-espacial"),
             {"desde": "2021-01-01", "hasta": "2021-03-31", "tipo": "ranking_via"},
         )
