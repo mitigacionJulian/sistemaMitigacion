@@ -24,14 +24,14 @@ from .territorio_sql import (
     punto_critico_serie_sql,
 )
 
-ModeloPred = Literal["ols", "estacional", "poisson", "media_movil"]
+ModeloPred = Literal["ols", "estacional", "poisson", "media_movil", "arima", "sarima"]
 VariablePred = Literal["incidentes", "victimas", "victimas_fatales"]
 
 MA_VENTANA_DEFAULT = 3
 MA_VENTANA_MIN = 2
 MA_VENTANA_MAX = 12
 
-MODELOS_PROYECCION_CARGA = frozenset({"ols", "estacional", "media_movil"})
+MODELOS_PROYECCION_CARGA = frozenset({"ols", "estacional", "media_movil", "arima", "sarima"})
 
 
 def normalize_modelo_proyeccion(modelo: str, default: ModeloPred = "estacional") -> ModeloPred:
@@ -44,6 +44,9 @@ def normalize_modelo_proyeccion(modelo: str, default: ModeloPred = "estacional")
         "media_movil": "media_movil",
         "ma": "media_movil",
         "moving_average": "media_movil",
+        "arima": "arima",
+        "sarima": "sarima",
+        "seasonal_arima": "sarima",
     }
     if raw in aliases:
         return aliases[raw]
@@ -565,6 +568,16 @@ def _metodo_texto(modelo: ModeloPred) -> str:
             "de los últimos k meses incluyendo el mes actual; la proyección repite la media "
             "de los k meses más recientes del ajuste."
         )
+    if modelo == "arima":
+        return (
+            "ARIMA sobre la serie mensual: modelo autorregresivo integrado de media móvil "
+            "(por defecto orden (1,1,1)) estimado por máxima verosimilitud."
+        )
+    if modelo == "sarima":
+        return (
+            "SARIMA sobre la serie mensual: ARIMA con componente estacional de periodo 12 meses "
+            "(por defecto (1,1,1)(1,1,1,12)); adecuado cuando hay patrón intra-anual repetible."
+        )
     return (
         "Modelo de Poisson log-lineal (GLM): tendencia + estacionalidad por mes; "
         "ajuste por scoring iterativo (máx. verosimilitud)."
@@ -586,6 +599,18 @@ def _limitaciones_texto(modelo: ModeloPred, variable: VariablePred) -> str:
             + " La media móvil no modela tendencia ni estacionalidad; suaviza la serie "
             "y asume persistencia del nivel reciente."
         )
+    if modelo == "arima":
+        return (
+            base
+            + " ARIMA asume estacionariedad tras diferenciación; requiere al menos 12 meses "
+            "en el ajuste y puede sobreajustar series cortas o con shocks."
+        )
+    if modelo == "sarima":
+        return (
+            base
+            + " SARIMA requiere al menos 24 meses para estimar estacionalidad mensual; "
+            "los conteos se tratan como serie real (no enteros) y la proyección se recorta a ≥ 0."
+        )
     return base + " Poisson asume varianza≈media; si hay sobredispersión, la incertidumbre puede subestimarse."
 
 
@@ -594,6 +619,14 @@ def _min_meses_modelo(modelo: ModeloPred, ventana_ma: int = MA_VENTANA_DEFAULT) 
         return 2
     if modelo == "media_movil":
         return _clamp_ventana_ma(ventana_ma)
+    if modelo == "arima":
+        from .modelos_arima import MIN_MESES_ARIMA
+
+        return MIN_MESES_ARIMA
+    if modelo == "sarima":
+        from .modelos_arima import MIN_MESES_SARIMA
+
+        return MIN_MESES_SARIMA
     return 3
 
 
@@ -632,6 +665,7 @@ def _build_single(
     coeficientes: dict[str, Any] | None = None
     beta: list[float] = []
     yhat_by_mes: dict[str, float] = {}
+    fore_direct: list[float] | None = None
 
     if not sin_modelo:
         if modelo == "ols":
@@ -654,20 +688,38 @@ def _build_single(
             yhat_fit, beta, coeficientes = _fit_media_movil(serie_fit, ventana)
             for i, mk in enumerate(meses_fit):
                 yhat_by_mes[mk] = yhat_fit[i]
+        elif modelo in ("arima", "sarima"):
+            from .modelos_arima import ajustar_y_proyectar_arima
+
+            arima_res = ajustar_y_proyectar_arima(
+                ys_fit,
+                hm,
+                seasonal=(modelo == "sarima"),
+            )
+            if arima_res is None:
+                sin_modelo = True
+            else:
+                yhat_fit, fore_direct, coeficientes = arima_res
+                for i, mk in enumerate(meses_fit):
+                    yhat_by_mes[mk] = yhat_fit[i]
         else:
             yhat_fit, beta, coeficientes = _fit_poisson(serie_fit)
             for i, mk in enumerate(meses_fit):
                 yhat_by_mes[mk] = yhat_fit[i]
 
+    if not sin_modelo:
         for i, mk in enumerate(meses):
             ajuste = round(yhat_by_mes[mk], 2) if mk in yhat_by_mes else None
             serie_historica.append(_row_historica(mk, valores[i], ajuste, variable))
 
-        yhat_hist_list = [yhat_by_mes[mk] for mk in meses_fit]
-        modelo_forecast: ModeloPred = modelo
-        if modelo == "poisson" and coeficientes and coeficientes.get("fallback_estacional"):
-            modelo_forecast = "estacional"
-        fore = _forecast_values(modelo_forecast, serie_fit, beta, hm, yhat_hist_list)
+        if fore_direct is not None:
+            fore = fore_direct
+        else:
+            yhat_hist_list = [yhat_by_mes[mk] for mk in meses_fit]
+            modelo_forecast: ModeloPred = modelo
+            if modelo == "poisson" and coeficientes and coeficientes.get("fallback_estacional"):
+                modelo_forecast = "estacional"
+            fore = _forecast_values(modelo_forecast, serie_fit, beta, hm, yhat_hist_list)
         mk = meses[-1]
         for yf in fore:
             mk = _next_month_clave(mk)
@@ -725,7 +777,9 @@ def build_predicciones_mensuales_payload(
 ) -> dict[str, Any]:
     filtros = filtros or FiltrosKpi()
     mod: ModeloPred = (
-        modelo if modelo in ("ols", "estacional", "poisson", "media_movil") else "ols"
+        modelo
+        if modelo in ("ols", "estacional", "poisson", "media_movil", "arima", "sarima")
+        else "ols"
     )
     ventana = _clamp_ventana_ma(ventana_ma)
     var: VariablePred = (

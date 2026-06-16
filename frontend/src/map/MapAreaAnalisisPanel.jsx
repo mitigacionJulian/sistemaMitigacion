@@ -1,9 +1,20 @@
+export const PARTICIPACION_CELDA_HELP =
+  'Participación: porcentaje de los incidentes del polígono que cayó en esa celda. ' +
+  'Ej.: 27 % significa que más de una cuarta parte del total del área se concentró en un tramo pequeño.'
+
 function fmtNum(n, digits = 0) {
   if (n == null || Number.isNaN(Number(n))) return '—'
   return Number(n).toLocaleString('es-CO', {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   })
+}
+
+function pctArea(conteo, total) {
+  const t = Number(total)
+  const c = Number(conteo)
+  if (!t || t <= 0 || !Number.isFinite(c)) return null
+  return (c / t) * 100
 }
 
 /**
@@ -23,6 +34,10 @@ export function MapAreaAnalisisPanel({ resumen, loading = false }) {
   if (!resumen) return null
 
   const { clases_principales: clases = [], top_celdas: topCeldas = [] } = resumen
+  const hot = resumen.celda_mas_caliente
+  const hotPct =
+    hot?.porcentaje_area ??
+    pctArea(hot?.conteo, resumen.total_incidentes)
 
   return (
     <section className="landing-map-area-analisis" aria-labelledby="map-area-analisis-title">
@@ -30,6 +45,13 @@ export function MapAreaAnalisisPanel({ resumen, loading = false }) {
         Análisis del área seleccionada
       </h3>
       <p className="muted small landing-map-area-analisis-note">{resumen.nota}</p>
+      <p className="muted small landing-map-density-help">{PARTICIPACION_CELDA_HELP}</p>
+      {topCeldas.length > 0 && (
+        <p className="muted small landing-map-area-rank-hint">
+          Los números sobre el mapa coinciden con la columna <strong>#</strong> en «Top celdas en el
+          área» (solo celdas con incidentes; las grises no llevan número).
+        </p>
+      )}
 
       <div className="landing-map-area-analisis-kpis">
         <div className="landing-map-area-kpi">
@@ -60,11 +82,16 @@ export function MapAreaAnalisisPanel({ resumen, loading = false }) {
         </div>
       </div>
 
-      {resumen.celda_mas_caliente && (
+      {hot && (
         <p className="small landing-map-area-hotspot">
-          Celda más caliente: <strong>{fmtNum(resumen.celda_mas_caliente.conteo)}</strong> incidentes
-          ({fmtNum(resumen.celda_mas_caliente.densidad_por_km2, 1)} / km² en celda de{' '}
-          {fmtNum(resumen.tamano_celda_m, 0)} m).
+          Celda más caliente: <strong>{fmtNum(hot.conteo)}</strong> incidentes
+          {hotPct != null && (
+            <>
+              {' '}
+              — <strong>{fmtNum(hotPct, 1)} %</strong> del total del área
+            </>
+          )}
+          .
         </p>
       )}
 
@@ -93,7 +120,7 @@ export function MapAreaAnalisisPanel({ resumen, loading = false }) {
                 <tr>
                   <th>#</th>
                   <th>Inc.</th>
-                  <th>Dens. / km²</th>
+                  <th>% área</th>
                 </tr>
               </thead>
               <tbody>
@@ -101,7 +128,12 @@ export function MapAreaAnalisisPanel({ resumen, loading = false }) {
                   <tr key={c.rank}>
                     <td>{c.rank}</td>
                     <td>{fmtNum(c.conteo)}</td>
-                    <td>{fmtNum(c.densidad_por_km2, 1)}</td>
+                    <td>
+                      {fmtNum(
+                        c.porcentaje_area ?? pctArea(c.conteo, resumen.total_incidentes),
+                        1,
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

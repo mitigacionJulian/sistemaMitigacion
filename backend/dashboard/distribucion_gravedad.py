@@ -17,6 +17,7 @@ def _key_sql(alias_gv: str = "gv") -> str:
     fatal = _fatal_sql_expr(g)
     return f"""CASE
       WHEN {fatal} THEN 'FATAL'
+      WHEN lower({g}.nombre) LIKE '%%%%herido%%%%' OR upper({g}.codigo) LIKE '%%%%HERIDO%%%%' THEN 'HERIDO'
       WHEN lower({g}.nombre) LIKE '%%%%grave%%%%' OR upper({g}.codigo) LIKE '%%%%GRAVE%%%%' THEN 'GRAVE'
       WHEN lower({g}.nombre) LIKE '%%%%leve%%%%' OR upper({g}.codigo) LIKE '%%%%LEVE%%%%' THEN 'LEVE'
       ELSE 'OTRO'
@@ -28,6 +29,7 @@ def _label_sql(alias_gv: str = "gv") -> str:
     fatal = _fatal_sql_expr(g)
     return f"""CASE
       WHEN {fatal} THEN 'Fatal'
+      WHEN lower({g}.nombre) LIKE '%%%%herido%%%%' OR upper({g}.codigo) LIKE '%%%%HERIDO%%%%' THEN 'Heridos'
       WHEN lower({g}.nombre) LIKE '%%%%grave%%%%' OR upper({g}.codigo) LIKE '%%%%GRAVE%%%%' THEN 'Grave'
       WHEN lower({g}.nombre) LIKE '%%%%leve%%%%' OR upper({g}.codigo) LIKE '%%%%LEVE%%%%' THEN 'Leve'
       ELSE COALESCE(NULLIF(trim({g}.nombre), ''), 'Otro / sin clasificar')
@@ -49,13 +51,13 @@ def _query_distribucion(
     sql = f"""
     SELECT
       {key_expr} AS key,
-      {label_expr} AS label,
+      MAX({label_expr}) AS label,
       COUNT(v.id)::bigint AS total_victimas
     FROM incidente i
     LEFT JOIN victima v ON v.incidente_id = i.id
     LEFT JOIN gravedad_victima gv ON v.gravedad_victima_id = gv.id
     WHERE {wh}
-    GROUP BY 1, 2
+    GROUP BY 1
     ORDER BY 3 DESC
     """
     out: dict[str, tuple[str, int]] = {}
@@ -78,7 +80,7 @@ def build_distribucion_gravedad_payload(
     act = _query_distribucion(inicio, fin, filtros)
     ant = _query_distribucion(inicio_ant, fin_ant, filtros)
 
-    order = ["FATAL", "GRAVE", "LEVE", "OTRO"]
+    order = ["FATAL", "HERIDO", "GRAVE", "LEVE", "OTRO"]
     keys = list(dict.fromkeys(order + list(act.keys()) + list(ant.keys())))
     total_act = sum(v for _, v in act.values()) or 1
     total_ant = sum(v for _, v in ant.values()) or 1
@@ -88,6 +90,8 @@ def build_distribucion_gravedad_payload(
         label = act.get(k, ant.get(k, ("Otro / sin clasificar", 0)))[0]
         v_act = act.get(k, (label, 0))[1]
         v_ant = ant.get(k, (label, 0))[1]
+        if v_act == 0 and v_ant == 0:
+            continue
         serie.append(
             {
                 "codigo": k,

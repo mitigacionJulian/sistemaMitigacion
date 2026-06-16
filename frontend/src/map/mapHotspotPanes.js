@@ -1,12 +1,15 @@
 export const HOTSPOTS_GRID_PANE = 'hotspots-grid-pane'
 export const HOTSPOTS_OUTLINE_PANE = 'hotspots-outline-pane'
+export const HOTSPOTS_LABEL_PANE = 'hotspots-label-pane'
 
 /** @typedef {'inactive' | 'draw' | 'adjust'} AreaEditorPhase */
 
 export function ensureHotspotsGridPane(map) {
   if (!map.getPane(HOTSPOTS_GRID_PANE)) {
     map.createPane(HOTSPOTS_GRID_PANE)
-    map.getPane(HOTSPOTS_GRID_PANE).style.zIndex = '560'
+    const pane = map.getPane(HOTSPOTS_GRID_PANE)
+    pane.style.zIndex = '560'
+    pane.style.pointerEvents = 'auto'
   }
   return HOTSPOTS_GRID_PANE
 }
@@ -14,15 +17,28 @@ export function ensureHotspotsGridPane(map) {
 export function ensureHotspotsOutlinePane(map) {
   if (!map.getPane(HOTSPOTS_OUTLINE_PANE)) {
     map.createPane(HOTSPOTS_OUTLINE_PANE)
-    map.getPane(HOTSPOTS_OUTLINE_PANE).style.zIndex = '565'
+    const pane = map.getPane(HOTSPOTS_OUTLINE_PANE)
+    pane.style.zIndex = '565'
+    // Solo referencia visual: no interceptar hover/clic de la cuadrícula.
+    pane.style.pointerEvents = 'none'
   }
   return HOTSPOTS_OUTLINE_PANE
 }
 
-/** Deja pasar clics al editor de área (z-index 550) mientras se dibuja. */
+export function ensureHotspotsLabelPane(map) {
+  if (!map.getPane(HOTSPOTS_LABEL_PANE)) {
+    map.createPane(HOTSPOTS_LABEL_PANE)
+    const pane = map.getPane(HOTSPOTS_LABEL_PANE)
+    pane.style.zIndex = '562'
+    pane.style.pointerEvents = 'none'
+  }
+  return HOTSPOTS_LABEL_PANE
+}
+
+/** Habilita o bloquea interacción en la cuadrícula P14 (p. ej. mientras se dibuja el área). */
 export function setHotspotPanesInteractive(map, interactive) {
-  for (const name of [HOTSPOTS_GRID_PANE, HOTSPOTS_OUTLINE_PANE]) {
-    const pane = map.getPane(name)
-    if (pane) pane.style.pointerEvents = interactive ? '' : 'none'
+  const gridPane = map.getPane(HOTSPOTS_GRID_PANE)
+  if (gridPane) {
+    gridPane.style.pointerEvents = interactive ? 'auto' : 'none'
   }
 }

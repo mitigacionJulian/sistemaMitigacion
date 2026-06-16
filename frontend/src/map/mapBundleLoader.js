@@ -18,6 +18,12 @@ const CHOROPLETH_NIVELES = ['comuna', 'barrio']
 const CHOROPLETH_METRICAS = ['densidad', 'conteo']
 const CELDA_SIZES = ['300', '500']
 
+function resolveNivelForView(viewMode, comunaId, barrioId) {
+  if (barrioId) return 'barrio'
+  if (viewMode === 'detalle' && comunaId) return 'barrio'
+  return 'comuna'
+}
+
 /**
  * @param {(state: { percent: number, label: string, step?: number, totalSteps?: number }) => void} onProgress
  */
@@ -146,8 +152,7 @@ function hotspotsFetchParams(baseParams, ui) {
 export async function fetchMissingMapLayer(baseParams, bundle, ui) {
   const { viewMode, choroplethMetric, mapLimite, tamanoCeldaM, metodoHotspot, comunaId, barrioId } =
     ui
-  const nivel =
-    barrioId || comunaId ? 'barrio' : 'comuna'
+  const nivel = resolveNivelForView(viewMode, comunaId, barrioId)
 
   if (viewMode === 'cuadricula') {
     const hk = hotspotsCacheKey(
@@ -202,7 +207,7 @@ export function pickViewFromBundle(bundle, ui) {
     barrioId,
     nivelDensidad,
   } = ui
-  const nivel = barrioId || comunaId ? 'barrio' : 'comuna'
+  const nivel = resolveNivelForView(viewMode, comunaId, barrioId)
 
   let choroplethData = null
   let pointsData = null
@@ -243,7 +248,7 @@ export function hasCachedViewLayer(bundle, ui) {
   if (!bundle) return false
   const { viewMode, choroplethMetric, mapLimite, tamanoCeldaM, metodoHotspot, comunaId, barrioId } =
     ui
-  const nivel = barrioId || comunaId ? 'barrio' : 'comuna'
+  const nivel = resolveNivelForView(viewMode, comunaId, barrioId)
   if (viewMode === 'cuadricula') {
     if (metodoHotspot === 'area' && !ui.areaSelectionGeojson) return false
     return Boolean(

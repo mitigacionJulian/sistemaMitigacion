@@ -11,6 +11,7 @@ import { Register } from './pages/Register.jsx'
 import { RecoverPasswordGate } from './pages/RecoverPasswordGate.jsx'
 import { RequireAnalista } from './components/RequireAnalista.jsx'
 import { Agente } from './pages/Agente.jsx'
+import { ReportePreview } from './pages/ReportePreview.jsx'
 
 const Predicciones = lazy(() =>
   import('./pages/Predicciones.jsx').then((m) => ({ default: m.Predicciones })),
@@ -23,7 +24,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Layout />}>
             <Route index element={<Landing />} />
-            <Route path="mapa" element={<Mapa />} />
+            <Route path="mapa" element={<RouteErrorBoundary><Mapa /></RouteErrorBoundary>} />
             <Route path="tablero" element={<Dashboard />} />
             <Route path="agente" element={<Agente />} />
             <Route
@@ -35,6 +36,14 @@ export default function App() {
                       <Predicciones />
                     </Suspense>
                   </RouteErrorBoundary>
+                </RequireAnalista>
+              }
+            />
+            <Route
+              path="reporte/vista"
+              element={
+                <RequireAnalista>
+                  <ReportePreview />
                 </RequireAnalista>
               }
             />

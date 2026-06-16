@@ -24,6 +24,7 @@ import {
   fetchDashboardRangoFechas,
 } from '../api/client.js'
 import { PatronesDiaHoraPanel } from '../components/PatronesDiaHoraPanel.jsx'
+import { GenerarReporteButton } from '../components/reportes/GenerarReporteButton.jsx'
 import { RouteErrorBoundary } from '../components/RouteErrorBoundary.jsx'
 
 async function fetchPrediccionesBundle({
@@ -89,6 +90,8 @@ const MODELO_OPTS = [
   { value: 'estacional', label: 'Estacional (tendencia + mes calendario)' },
   { value: 'poisson', label: 'Poisson log-lineal' },
   { value: 'media_movil', label: 'Media móvil simple' },
+  { value: 'arima', label: 'ARIMA (serie temporal, ≥12 meses)' },
+  { value: 'sarima', label: 'SARIMA (estacional mensual, ≥24 meses)' },
 ]
 
 const VENTANA_MA_OPTS = [
@@ -108,12 +111,16 @@ const MODELO_PROP_OPTS = [
   { value: 'ols', label: 'OLS sobre % mensual' },
   { value: 'logistica', label: 'Logit-lineal (tendencia en escala logit)' },
   { value: 'media_movil', label: 'Media móvil simple' },
+  { value: 'arima', label: 'ARIMA sobre % (≥12 meses válidos)' },
+  { value: 'sarima', label: 'SARIMA sobre % (≥24 meses válidos)' },
 ]
 
 const MODELO_CARGA_OPTS = [
   { value: 'estacional', label: 'Estacional (recomendado)' },
   { value: 'ols', label: 'OLS (tendencia)' },
   { value: 'media_movil', label: 'Media móvil simple' },
+  { value: 'arima', label: 'ARIMA (≥12 meses)' },
+  { value: 'sarima', label: 'SARIMA (≥24 meses)' },
 ]
 
 const CARGA_CATEGORIA_COLOR = {
@@ -201,12 +208,16 @@ function modeloLegendLabel(modelo) {
   if (modelo === 'estacional') return 'Modelo estacional + extrapolación'
   if (modelo === 'poisson') return 'Modelo Poisson + extrapolación'
   if (modelo === 'media_movil') return 'Media móvil + extrapolación'
+  if (modelo === 'arima') return 'ARIMA + extrapolación'
+  if (modelo === 'sarima') return 'SARIMA + extrapolación'
   return 'Tendencia OLS + extrapolación'
 }
 
 function minMesesModelo(modelo, ventanaMeses) {
   if (modelo === 'ols') return 'dos'
   if (modelo === 'media_movil' && ventanaMeses) return String(ventanaMeses)
+  if (modelo === 'arima') return '12'
+  if (modelo === 'sarima') return '24'
   return 'tres'
 }
 
@@ -231,6 +242,136 @@ function metricasBondad(c) {
       )}
     </>
   )
+}
+
+const BONDAD_METRICAS_GLOSARIO = [
+  {
+    sigla: 'R² (R cuadrado)',
+    texto:
+      'Resume qué tan bien el modelo «sigue» los datos del periodo, en una escala de 0 a 1. ' +
+      'Cerca de 1 = el ajuste reproduce bien la serie; cerca de 0 = el modelo casi no explica la variación ' +
+      '(sería como una línea casi plana). No mide si la proyección futura será correcta, solo el ajuste histórico.',
+  },
+  {
+    sigla: 'RMSE (raíz del error cuadrático medio)',
+    texto:
+      'Error típico en las mismas unidades de la serie. En conteos mensuales son incidentes/víctimas; ' +
+      'en % fatales son puntos porcentuales (ej. RMSE 0,24 ≈ equivocarse ~0,24 puntos porcentuales por mes, ' +
+      'como predecir 8,5 % cuando el real fue 8,7 %). Cuanto más bajo, mejor.',
+  },
+  {
+    sigla: 'MAPE (error porcentual medio absoluto)',
+    texto:
+      'Error medio expresado como % del valor observado. MAPE 30 % ≈ en promedio el modelo se aleja un 30 % ' +
+      'del dato real (en magnitud relativa). Útil cuando los valores cambian mucho de un mes a otro. ' +
+      'Orientativo: ≤ 12 % aceptable; 13–20 % moderado; > 20 % elevado.',
+  },
+  {
+    sigla: 'AIC y BIC',
+    texto:
+      'Criterios para comparar dos o más modelos sobre los mismos datos (p. ej. ARIMA vs SARIMA). ' +
+      'Valores más bajos indican mejor equilibrio entre ajuste y complejidad. No dicen por sí solos si un modelo ' +
+      'es «bueno» en términos absolutos: solo ayudan a elegir entre alternativas.',
+  },
+]
+
+function BondadMetricasContenido({ umbralesP07 = null, mostrarReglaPractica = true }) {
+  return (
+    <>
+      <p>
+        Estas cifras aparecen bajo los gráficos de predicción. Están pensadas para orientar al analista, no para
+        certificar una predicción exacta.
+      </p>
+      <ul className="bondad-metricas-list">
+        {BONDAD_METRICAS_GLOSARIO.map((item) => (
+          <li key={item.sigla}>
+            <strong>{item.sigla}:</strong> {item.texto}
+          </li>
+        ))}
+      </ul>
+      {umbralesP07 && (
+        <p>
+          <strong>R² en proporción de fatales (P07):</strong> bueno {umbralesP07.bueno}; moderado{' '}
+          {umbralesP07.moderado}; bajo {umbralesP07.bajo}. En el % mensual de gravedad es habitual ver R² moderado
+          o bajo con OLS/ARIMA; el modelo <strong>estacional sobre %</strong> suele leer mejor los meses altos/bajos.
+        </p>
+      )}
+      {!umbralesP07 && (
+        <p>
+          <strong>R² en proyección de conteos:</strong> ≥ 0,55 bueno; 0,35–0,54 moderado (habitual con estacionalidad);
+          &lt; 0,35 bajo — conviene probar modelo estacional, ampliar fechas o excluir meses COVID del ajuste.
+        </p>
+      )}
+      {mostrarReglaPractica && (
+        <p>
+          <strong>Regla práctica:</strong> mire primero R² y MAPE juntos. Si R² es muy bajo y MAPE alto, el modelo
+          no resume bien la serie con los filtros actuales: cambie de modelo, amplíe fechas o use la proyección solo
+          como orden de magnitud, no como cifra exacta.
+        </p>
+      )}
+    </>
+  )
+}
+
+function BondadMetricasGuia({ meta = null, defaultOpen = false }) {
+  return (
+    <details className="prioridad-ayuda-details bondad-metricas-guia" open={defaultOpen}>
+      <summary>¿Qué significan R², RMSE, MAPE, AIC y BIC?</summary>
+      <div className="muted small bondad-metricas-body">
+        <BondadMetricasContenido umbralesP07={meta?.umbrales_r2_p07} />
+      </div>
+    </details>
+  )
+}
+
+function BondadConsejoModelo({ meta }) {
+  const c = meta?.coeficientes
+  if (!c || meta?.sin_modelo) return null
+  const r2 = Number(c.r2)
+  const mape = c.mape_pct != null ? Number(c.mape_pct) : null
+  const mod = meta.modelo
+  const esP07 = meta?.min_victimas_mes != null || meta?.umbrales_r2_p07 != null
+  if (Number.isNaN(r2)) return null
+
+  if (r2 < 0.35) {
+    if (esP07 && (mod === 'arima' || mod === 'sarima' || mod === 'ols' || mod === 'logistica')) {
+      return (
+        <p className="warn small bondad-consejo" role="status">
+          <strong>Lectura rápida:</strong> R² cercano a 0 indica que este modelo no está capturando bien la
+          variación del % mensual. MAPE {mape != null && mape > 20 ? `elevado (${mape} %)` : 'también conviene revisarlo'}.
+          Para P07 suele funcionar mejor <strong>Estacional sobre %</strong> o, si busca suavizar sin tendencia fuerte,{' '}
+          <strong>Media móvil</strong>. ARIMA/SARIMA en proporciones muy volátiles a menudo dejan R² bajo aunque el
+          ajuste técnico sea válido.
+        </p>
+      )
+    }
+    return (
+      <p className="warn small bondad-consejo" role="status">
+        <strong>Lectura rápida:</strong> ajuste bajo (R² &lt; 0,35). Pruebe modelo <strong>estacional</strong>, amplíe
+        el rango de fechas o active <strong>Excluir mar–ago 2020</strong> antes de usar la proyección con confianza.
+      </p>
+    )
+  }
+
+  if (r2 >= 0.35 && r2 < 0.55 && mape != null && mape > 20) {
+    return (
+      <p className="muted small bondad-consejo" role="status">
+        <strong>Lectura rápida:</strong> R² moderado pero MAPE elevado — el modelo capta parte del patrón, pero mes a
+        mes puede alejarse bastante del dato observado. Úselo para tendencia u orden de magnitud, no para cifras exactas.
+      </p>
+    )
+  }
+
+  if (r2 >= 0.55) {
+    return (
+      <p className="muted small bondad-consejo bondad-consejo--ok" role="status">
+        <strong>Lectura rápida:</strong> ajuste consistente en el periodo elegido. Aun así, recuerde que la proyección
+        futura es un escenario modelado, no un hecho observado.
+      </p>
+    )
+  }
+
+  return null
 }
 
 const PRIORIDAD_COLUMNAS_AYUDA = [
@@ -394,18 +535,31 @@ function PrediccionesFiltrosGuia() {
                 <strong>Media móvil</strong> — extrapola «como los últimos k meses» (3, 6 o 12); suaviza ruido y evita
                 extrapolar tendencias fuertes. Requiere al menos k meses en el ajuste.
               </li>
+              <li>
+                <strong>ARIMA</strong> — modela la dependencia temporal mes a mes (memoria de corto plazo y tendencia
+                con diferenciación). Requiere al menos <strong>12 meses</strong> con datos en el rango. Útil cuando OLS
+                o la media móvil no capturan bien la dinámica de la serie.
+              </li>
+              <li>
+                <strong>SARIMA</strong> — como ARIMA, pero con estacionalidad mensual (ciclo de 12 meses). Requiere al
+                menos <strong>24 meses</strong> (dos años completos) para estimar el patrón estacional con estabilidad.
+                Compare con <strong>Estacional</strong> si prefiere un modelo más interpretable con menos historia.
+              </li>
             </ul>
           </li>
           <li>
             <strong>Proporción de fatales:</strong> use <strong>Estacional sobre %</strong> (recomendado) si el % mensual
             varía según la época del año; <strong>OLS sobre %</strong> para tendencia simple;{' '}
             <strong>Logit-lineal</strong> si las proporciones están muy cerca de 0 % o 100 %; <strong>Media móvil</strong>{' '}
-            para suavizar el % reciente sin asumir tendencia fuerte.
+            para suavizar el % reciente sin asumir tendencia fuerte; <strong>ARIMA</strong> o <strong>SARIMA</strong>{' '}
+            sobre el % si dispone de 12 o 24 meses válidos (véase nota de meses mínimos abajo).
           </li>
           <li>
             <strong>Carga territorial y patrones (P12/P13):</strong> <strong>Estacional</strong> (recomendado) si proyecta
             varios meses y espera estacionalidad; <strong>OLS</strong> para tendencia lineal de incidentes por
-            territorio; <strong>Media móvil</strong> para un escenario conservador basado en el tramo reciente.
+            territorio; <strong>Media móvil</strong> para un escenario conservador basado en el tramo reciente;{' '}
+            <strong>ARIMA</strong> o <strong>SARIMA</strong> con los mismos mínimos de historia que en la proyección
+            mensual.
           </li>
           <li>
             <strong>Prioridad territorial (P05):</strong> el componente «tendencia» del índice usa <strong>OLS</strong> fijo
@@ -417,7 +571,35 @@ function PrediccionesFiltrosGuia() {
             tendencia; amplíe fechas o pruebe estacional si OLS o MA quedan planos o muy alejados de la serie
             observada.
           </li>
+          <li>
+            <strong>ARIMA y SARIMA — ¿por qué piden más meses?</strong> No es un límite arbitrario del sistema: cada
+            modelo debe estimar varios parámetros (autoregresión, media móvil, diferenciación y, en SARIMA, componente
+            estacional con periodo 12). Con poca historia esos parámetros quedan inestables y la proyección puede
+            seguir el ruido de un mes atípico en lugar de un patrón real.
+            <ul>
+              <li>
+                <strong>ARIMA (mín. 12 meses):</strong> el ajuste usa órdenes del tipo (1,1,1): diferenciación consume
+                una observación y hay que estimar coeficientes AR y MA con datos suficientes; ~12 puntos es el piso habitual
+                en series temporales.
+              </li>
+              <li>
+                <strong>SARIMA (mín. 24 meses):</strong> para distinguir «enero sube porque es enero» de un pico puntual
+                hace falta ver <strong>dos ciclos anuales completos</strong> (2 × 12 meses). Con un solo año no se puede
+                separar estacionalidad de variación aleatoria.
+              </li>
+              <li>
+                <strong>Proporción de fatales (P07):</strong> además del mínimo del modelo, solo entran al ajuste los meses
+                con <strong>≥ 10 víctimas</strong> (el % sería demasiado inestable con menos volumen). Un rango de 18
+                meses en el calendario puede dejar solo 14 meses válidos — amplíe fechas o reduzca filtros territoriales
+                si el aviso de «serie insuficiente» persiste.
+              </li>
+            </ul>
+          </li>
         </ul>
+        <p>
+          <strong>Cómo leer la bondad del ajuste (sin ser estadístico)</strong>
+        </p>
+        <BondadMetricasContenido />
         <p>
           Si un bloque queda vacío, amplíe fechas, quite filtros restrictivos o pruebe otro modelo. Las proyecciones
           son <strong>descriptivas</strong> (escenarios de tendencia), no predicciones probabilísticas con intervalo de
@@ -474,6 +656,19 @@ function ProporcionCoefResumen({ meta }) {
       </>
     )
   }
+  if (mod === 'arima' || mod === 'sarima') {
+    const orden = c.orden_arima?.join(',') ?? '—'
+    const est = c.orden_estacional?.join(',') ?? null
+    const etiquetaOrden =
+      mod === 'sarima' && est ? `(${orden})×(${est})` : `(${orden})`
+    return (
+      <>
+        {mod === 'sarima' ? 'SARIMA' : 'ARIMA'}
+        <strong>{etiquetaOrden}</strong> sobre % fatales · AIC ≈ <strong>{c.aic ?? '—'}</strong>, BIC ≈{' '}
+        <strong>{c.bic ?? '—'}</strong>. {bondad}
+      </>
+    )
+  }
   return (
     <>
       OLS del %: pendiente ≈ <strong>{c.pendiente_b_mes ?? '—'}</strong> puntos porcentuales/mes. {bondad}
@@ -485,9 +680,12 @@ function ProporcionUmbralesR2({ meta }) {
   const u = meta?.umbrales_r2_p07
   if (!u) return null
   return (
-    <p className="muted small proporcion-umbrales-r2">
-      <strong>R² orientativo (P07):</strong> bueno {u.bueno}; moderado {u.moderado}; bajo {u.bajo}.
-    </p>
+    <>
+      <p className="muted small proporcion-umbrales-r2">
+        <strong>R² orientativo (P07):</strong> bueno {u.bueno}; moderado {u.moderado}; bajo {u.bajo}.
+      </p>
+      <BondadMetricasGuia meta={meta} />
+    </>
   )
 }
 
@@ -535,6 +733,20 @@ function CoefResumen({ meta }) {
         Media móvil (ventana <strong>{c.ventana_meses ?? meta?.ventana_meses ?? '—'}</strong> meses): último
         valor ≈ <strong>{c.ultima_media_movil ?? '—'}</strong>. {bondad}
         <span className="muted"> (Suaviza la serie; la proyección repite el nivel reciente.)</span>
+      </>
+    )
+  }
+  if (mod === 'arima' || mod === 'sarima') {
+    const orden = c.orden_arima?.join(',') ?? '—'
+    const est = c.orden_estacional?.join(',') ?? null
+    const etiquetaOrden =
+      mod === 'sarima' && est ? `(${orden})×(${est})` : `(${orden})`
+    return (
+      <>
+        {mod === 'sarima' ? 'SARIMA' : 'ARIMA'}
+        <strong>{etiquetaOrden}</strong> · AIC ≈ <strong>{c.aic ?? '—'}</strong>, BIC ≈{' '}
+        <strong>{c.bic ?? '—'}</strong>. {bondad}
+        {c.nota ? <span className="muted"> {c.nota}</span> : null}
       </>
     )
   }
@@ -854,6 +1066,103 @@ export function Predicciones() {
     void loadPatrones()
   }, [horizontePredicciones, modeloCarga, ventanaMa, loadPatrones, predicciones])
 
+  const filtrosReporte = useMemo(() => {
+    const comuna = (catalogos.comunas || []).find((c) => String(c.id) === comunaId)
+    const barrio = barrios.find((b) => String(b.id) === barrioId)
+    const clase = (catalogos.clases_incidente || []).find((c) => String(c.id) === claseId)
+    const modeloLabel = (opts, value) => opts.find((o) => o.value === value)?.label ?? value
+    return {
+      desde,
+      hasta,
+      ...(comuna ? { comuna: comuna.nombre } : {}),
+      ...(barrio ? { barrio: barrio.nombre } : {}),
+      ...(clase ? { clase_incidente: clase.nombre } : {}),
+      territorio: modoTerritorio === 'espacial' ? 'Polígono PostGIS' : 'Registro Mede',
+      horizonte_meses: horizontePredicciones,
+      modelo_proyeccion: modeloLabel(MODELO_OPTS, modeloPred),
+      variable: modeloLabel(VARIABLE_OPTS, variablePred),
+      modelo_proporcion: modeloLabel(MODELO_PROP_OPTS, modeloProp),
+      modelo_carga: modeloLabel(MODELO_CARGA_OPTS, modeloCarga),
+      nivel_prioridad: nivelPrioridad === 'barrio' ? 'Barrio' : 'Comuna',
+      nivel_carga: nivelCarga === 'barrio' ? 'Barrio' : 'Comuna',
+      excluir_covid: excluirCovid ? 'Sí' : 'No',
+      ...(desglosePorClase && !claseId ? { desglose_clase: 'Sí' } : {}),
+      ...(desgloseComunaProp && !comunaId ? { desglose_comuna: 'Sí' } : {}),
+      ...(usaMediaMovil ? { ventana_ma: `${ventanaMa} meses` } : {}),
+    }
+  }, [
+    desde,
+    hasta,
+    comunaId,
+    barrioId,
+    claseId,
+    modoTerritorio,
+    catalogos,
+    barrios,
+    horizontePredicciones,
+    modeloPred,
+    variablePred,
+    modeloProp,
+    modeloCarga,
+    nivelPrioridad,
+    nivelCarga,
+    excluirCovid,
+    desglosePorClase,
+    desgloseComunaProp,
+    usaMediaMovil,
+    ventanaMa,
+  ])
+
+  const queryReporte = useMemo(() => {
+    const ventana =
+      modeloPred === 'media_movil' || modeloProp === 'media_movil' || modeloCarga === 'media_movil'
+        ? { ventana_ma: ventanaMa }
+        : {}
+    return {
+      desde,
+      hasta,
+      ...(comunaId ? { comuna_id: comunaId } : {}),
+      ...(barrioId ? { barrio_id: barrioId } : {}),
+      ...(claseId ? { clase_incidente_id: claseId } : {}),
+      ...(modoTerritorio === 'espacial' ? { territorio: 'espacial' } : {}),
+      horizonte_meses: horizontePredicciones,
+      modelo_pred: modeloPred,
+      modelo_prop: modeloProp,
+      modelo_carga: modeloCarga,
+      variable: variablePred,
+      ...ventana,
+      nivel_prioridad: nivelPrioridad,
+      nivel_carga: nivelCarga,
+      limite_prioridad: 15,
+      limite_carga: 12,
+      excluir_covid: excluirCovid ? '1' : '0',
+      ...(desglosePorClase && !claseId ? { desglose_clase: '1' } : {}),
+      ...(desgloseComunaProp && !comunaId ? { desglose_comuna: '1' } : {}),
+      serie_clase_idx: serieClaseIdx,
+      serie_comuna_idx: serieComunaIdx,
+    }
+  }, [
+    desde,
+    hasta,
+    comunaId,
+    barrioId,
+    claseId,
+    modoTerritorio,
+    horizontePredicciones,
+    modeloPred,
+    modeloProp,
+    modeloCarga,
+    variablePred,
+    ventanaMa,
+    nivelPrioridad,
+    nivelCarga,
+    excluirCovid,
+    desglosePorClase,
+    desgloseComunaProp,
+    serieClaseIdx,
+    serieComunaIdx,
+  ])
+
   const applyPrediccionesBundle = useCallback((bundle) => {
     setPredicciones(bundle.predicciones)
     setPrioridad(bundle.prioridad)
@@ -989,15 +1298,25 @@ export function Predicciones() {
 
   return (
     <div className="dashboard predicciones-page">
-      <header className="page-intro">
-        <h1>Predicciones</h1>
-        <p className="muted">
-          Proyecciones descriptivas con los mismos filtros del tablero: tendencia mensual de incidentes,
-          priorización territorial, carga esperada por comuna o barrio, proporción de víctimas fatales y patrones
-          por día de la semana y por hora. Cada bloque contrasta lo registrado en el{' '}
-          <strong>periodo seleccionado</strong> con la <strong>proyección</strong> hacia el horizonte que configure.
-        </p>
-        <PrediccionesFiltrosGuia />
+      <header className="page-intro page-intro-with-actions">
+        <div className="page-intro-text">
+          <h1>Predicciones</h1>
+          <p className="muted">
+            Proyecciones descriptivas con los mismos filtros del tablero: tendencia mensual de incidentes,
+            priorización territorial, carga esperada por comuna o barrio, proporción de víctimas fatales y patrones
+            por día de la semana y por hora. Cada bloque contrasta lo registrado en el{' '}
+            <strong>periodo seleccionado</strong> con la <strong>proyección</strong> hacia el horizonte que configure.
+          </p>
+          <PrediccionesFiltrosGuia />
+        </div>
+        <div className="page-intro-actions">
+          <GenerarReporteButton
+            seccion="predicciones"
+            seccionEtiqueta="Predicciones"
+            filtros={filtrosReporte}
+            query={queryReporte}
+          />
+        </div>
       </header>
 
       {loading && !predicciones && !err && <p className="muted">Cargando rango de fechas y serie…</p>}
@@ -1200,6 +1519,8 @@ export function Predicciones() {
                 <CoefResumen meta={metaActiva} />
               </p>
               <BondadInterpretacion meta={metaActiva} />
+              <BondadConsejoModelo meta={metaActiva} />
+              <BondadMetricasGuia />
             </>
           )}
           <div className="predicciones-toolbar">
@@ -1446,12 +1767,14 @@ export function Predicciones() {
         )}
         {metaProporcion?.sin_modelo ? (
           <p className="warn small" role="status">
-            Serie insuficiente para ajustar (pocos meses con ≥ 10 víctimas). Amplíe fechas o quite filtros
-            estrechos.
+            Serie insuficiente para ajustar: se requieren al menos{' '}
+            <strong>{minMesesModelo(metaProporcion.modelo, metaProporcion.ventana_meses)} meses</strong> con ≥
+            10 víctimas en el rango. Amplíe fechas o quite filtros estrechos.
           </p>
         ) : (
           <>
             <ProporcionBondadVisible meta={metaProporcion} />
+            <BondadConsejoModelo meta={metaProporcion} />
             <p className="muted small">
               <ProporcionCoefResumen meta={metaProporcion} />
             </p>

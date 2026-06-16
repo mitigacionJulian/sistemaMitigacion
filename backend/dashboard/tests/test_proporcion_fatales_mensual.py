@@ -94,6 +94,50 @@ def test_proyeccion_estable_no_cae_a_cero():
     assert all(x["pct_fatales_proyectado"] >= 8.0 for x in p["proyeccion"])
 
 
+def test_proporcion_arima_con_12_meses():
+    raw = {
+        f"2020-{m:02d}": {"victimas": 200, "fatales": 10 + (m % 4)}
+        for m in range(1, 13)
+    }
+    with patch(
+        "dashboard.proporcion_fatales_mensual._query_victimas_fatales_mes",
+        return_value=raw,
+    ):
+        p = build_proporcion_fatales_payload(
+            date(2020, 1, 1),
+            date(2020, 12, 31),
+            FiltrosKpi(),
+            horizonte_meses=2,
+            modelo="arima",
+            excluir_covid=False,
+        )
+    assert p["meta"]["modelo"] == "arima"
+    assert not p["meta"]["sin_modelo"]
+    assert len(p["proyeccion"]) == 2
+    assert all(0 <= x["pct_fatales_proyectado"] <= 100 for x in p["proyeccion"])
+    assert p["meta"]["coeficientes"].get("orden_arima") is not None
+
+
+def test_proporcion_sarima_requiere_24_meses():
+    raw = {
+        f"2020-{m:02d}": {"victimas": 200, "fatales": 15}
+        for m in range(1, 13)
+    }
+    with patch(
+        "dashboard.proporcion_fatales_mensual._query_victimas_fatales_mes",
+        return_value=raw,
+    ):
+        p = build_proporcion_fatales_payload(
+            date(2020, 1, 1),
+            date(2020, 12, 31),
+            FiltrosKpi(),
+            horizonte_meses=2,
+            modelo="sarima",
+            excluir_covid=False,
+        )
+    assert p["meta"]["sin_modelo"]
+
+
 @pytest.mark.django_db
 def test_api_proporcion_fatales_ok(analista_client):
     fake = {

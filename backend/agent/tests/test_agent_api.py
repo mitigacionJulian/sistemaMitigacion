@@ -22,6 +22,8 @@ User = get_user_model()
 
 @pytest.mark.django_db
 
+@pytest.mark.django_db
+
 def test_agent_info_public():
 
     c = __import__("rest_framework.test", fromlist=["APIClient"]).APIClient()
@@ -35,6 +37,10 @@ def test_agent_info_public():
     assert "models" in r.data
 
     assert "disclaimer" in r.data
+
+    assert "data_range" in r.data
+
+    assert r.data.get("predicciones") is None
 
 
 
@@ -77,6 +83,10 @@ def test_agent_info_analista():
     assert r.data["predictions_enabled"] is True
 
     assert r.data["is_analista"] is True
+
+    assert "data_range" in r.data
+
+    assert r.data["predicciones"]["horizonte_meses_max"] == 12
 
 
 

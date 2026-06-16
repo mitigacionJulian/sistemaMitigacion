@@ -8,7 +8,7 @@ Sistema web para visualización y análisis de accidentalidad (caso de estudio: 
 |------|-------------|
 | Backend | Django, Django REST Framework, **GeoDjango** |
 | Base de datos | **PostgreSQL + PostGIS** |
-| ETL / análisis | Python (pandas, NumPy; GeoPandas cuando aplique) |
+| ETL / análisis | Python (pandas, NumPy, **statsmodels**; GeoPandas cuando aplique) |
 | Frontend | React, Vite, **Leaflet** (mapa), **Recharts** (gráficos) |
 | Pruebas | pytest, pytest-django |
 | Local | Docker Compose (opcional) o Postgres + backend en el PC |
@@ -50,7 +50,7 @@ npm run dev
 
 API: `http://127.0.0.1:8000` · Frontend: `http://127.0.0.1:5173` (proxy `/api` → backend).
 
-**Acceso:** Inicio, Tablero, Mapa y **Asistente** (`/agente`) son públicos. **Predicciones** requiere iniciar sesión con rol **analista** (JWT). En el asistente, las consultas predictivas también requieren sesión de analista (el JWT se envía automáticamente si hay login).
+**Acceso:** Inicio, Tablero, Mapa y **Asistente** (`/agente`) son públicos. **Predicciones** y **reportes** requieren iniciar sesión con rol **analista** (JWT). En el asistente, las consultas predictivas también requieren sesión de analista (el JWT se envía automáticamente si hay login).
 
 **Docker (alternativa):** `docker compose up --build` desde la raíz; ver `docs/MANUAL_INSTALACION_EJECUCION.md` §8. No ejecutar otro `runserver` en el puerto 8000 a la vez.
 
@@ -62,8 +62,8 @@ Resumen breve; **árbol completo** en `docs/MANUAL_INSTALACION_EJECUCION.md` §2
 
 | Carpeta / archivo | Rol |
 |-------------------|-----|
-| `backend/` | API REST, lógica de indicadores |
-| `frontend/` | SPA (Inicio, Tablero, Mapa, Asistente, Predicciones) |
+| `backend/` | API REST, lógica de indicadores, **reportes** (`reports/`) |
+| `frontend/` | SPA (Inicio, Tablero, Mapa, Asistente, Predicciones, **Reportes**) |
 | `backend/agent/` | Asistente IA (Gemini + herramientas sobre APIs del dashboard) |
 | `mede_pipeline_guiado.py`, `mede_limpieza.py`, `mede_eda_export.py` | ETL y EDA |
 | `carga_mede_pgadmin.sql`, `requirements-etl.txt` | Carga idempotente a PostgreSQL |
@@ -97,7 +97,7 @@ pip install -r requirements.txt
 python -m pytest -q
 ```
 
-Esperado: **99 passed, 3 skipped** (SQLite en memoria vía `config.settings_test`; ver `backend/pytest.ini`).
+Esperado: suite `pytest` en verde (SQLite en memoria vía `config.settings_test`; ver `backend/pytest.ini`). Incluye tests de `dashboard/`, `agent/` y `reports/`.
 
 Los tests de predicciones usan JWT de rol **analista** (`backend/conftest.py`). PostGIS en PostgreSQL real se valida aparte con `python manage.py check_postgis` (no sustituye la suite pytest).
 

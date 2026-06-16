@@ -13,6 +13,7 @@ import {
 } from '../api/client.js'
 import {
   buildFilterKey,
+  choroplethCacheKey,
   createEmptyBundle,
   getMapBundle,
   getSessionMeta,
@@ -31,7 +32,18 @@ import { MapAreaAnalisisPanel } from '../map/MapAreaAnalisisPanel.jsx'
 import { MapAreaOutline } from '../map/MapAreaOutline.jsx'
 import { MapAreaSelection } from '../map/MapAreaSelection.jsx'
 import {
+  MapTerritorioResumenPanel,
+  RATIO_VS_CIUDAD_HELP,
+} from '../map/MapTerritorioResumenPanel.jsx'
+import { choroplethHasFeatures } from '../map/choroplethDecode.js'
+import {
+  findTerritorioFeature,
+  resolveChoroplethLayer,
+  resolveTerritorioResumen,
+} from '../map/territorioResumen.js'
+import {
   ensureHotspotsGridPane,
+  ensureHotspotsLabelPane,
   setHotspotPanesInteractive,
 } from '../map/mapHotspotPanes.js'
 import { LandingCalidadTerritorio } from './LandingCalidadTerritorio.jsx'
@@ -59,6 +71,9 @@ const MAP_LIMITE_OPTIONS = [
 
 const MAP_LIMITE_ALLOWED = new Set(MAP_LIMITE_OPTIONS.map((o) => o.value))
 const DEFAULT_MAP_LIMITE = '10000'
+const HOTSPOT_MAP_LABEL_MAX_RANK = 10
+const HOTSPOT_CAPTURE_LABEL_MAX_RANK = 15
+const HOTSPOT_RANK_LABEL_SIZE_PX = 22
 
 const HOTSPOT_CELDA_OPTIONS = [
   { value: '300', label: '300 m — más detalle' },
@@ -66,6 +81,24 @@ const HOTSPOT_CELDA_OPTIONS = [
 ]
 
 const HOTSPOT_CELDA_AREA_M = '100'
+
+const TERRITORIO_FILTRO_HELP = {
+  registro:
+    'Registro Mede: agrupa por comuna/barrio declarados en el dato original (comuna_id / barrio_id). ' +
+    'Puede diferir del mapa si el texto del registro y la coordenada no coinciden.',
+  espacial:
+    'Polígono PostGIS: agrupa según el punto del incidente dentro del límite oficial ' +
+    '(comuna_id_espacial / barrio_id_espacial). Solo cuenta incidentes con ubicación en el mapa.',
+}
+
+const INTENSIDAD_HELP = {
+  densidad:
+    'Densidad: colorea por incidentes ÷ km² del polígono. Normaliza por tamaño; útil para comparar ' +
+    'concentración entre comunas o barrios.',
+  conteo:
+    'Número de incidentes: colorea por el conteo total en el periodo. Muestra volumen bruto; ' +
+    'territorios grandes suelen destacar más aunque la concentración sea menor.',
+}
 
 const VIEW_MODES = [
   {
@@ -127,8 +160,9 @@ function choroplethStyle(value, minVal, maxVal, sinDatos, selected, fillOpacity 
   }
 }
 
-function resolveChoroplethNivel(comunaId, barrioId) {
-  if (barrioId || comunaId) return 'barrio'
+function resolveChoroplethNivel(viewMode, comunaId, barrioId) {
+  if (barrioId) return 'barrio'
+  if (viewMode === 'detalle' && comunaId) return 'barrio'
   return 'comuna'
 }
 
@@ -136,6 +170,22 @@ function fmtChoroplethVal(v, metrica) {
   if (v == null || Number.isNaN(Number(v))) return '—'
   if (metrica === 'conteo') return Number(v).toLocaleString('es-CO')
   return Number(v).toLocaleString('es-CO', { maximumFractionDigits: 2 })
+}
+
+function fmtAreaKm2(v) {
+  if (v == null || Number.isNaN(Number(v))) return '—'
+  return Number(v).toLocaleString('es-CO', {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  })
+}
+
+function fmtNum(v, digits = 0) {
+  if (v == null || Number.isNaN(Number(v))) return '—'
+  return Number(v).toLocaleString('es-CO', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })
 }
 
 function normalizeMapLimite(raw) {
@@ -154,6 +204,62 @@ function escapeHtml(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+}
+
+function pctParticipacionArea(conteo, totalIncidentes) {
+  const t = Number(totalIncidentes)
+  const c = Number(conteo)
+  if (!t || t <= 0 || !Number.isFinite(c) || c <= 0) return null
+  return (c / t) * 100
+}
+
+function buildHotspotAreaCellTooltipHtml(p, totalIncidentes) {
+  const conteo = Number(p.conteo || 0)
+  const lead =
+    '<p class="landing-map-tooltip-lead"><strong>Celda dentro del área seleccionada</strong></p>'
+  if (conteo <= 0) {
+    return `<div class="landing-map-tooltip">${lead}Sin incidentes en el periodo activo.</div>`
+  }
+  const pct = pctParticipacionArea(conteo, totalIncidentes)
+  const pctLine =
+    pct != null
+      ? `<br/>Participación: <strong>${escapeHtml(fmtNum(pct, 1))} %</strong> del área`
+      : ''
+  return (
+    `<div class="landing-map-tooltip">${lead}` +
+    `Incidentes: <strong>${escapeHtml(conteo)}</strong>${pctLine}</div>`
+  )
+}
+
+function buildHotspotCellPopupHtml(p, { areaSelection, totalIncidentes }) {
+  const celdaId = p.celda_id || `C${String(p.rank || '').padStart(3, '0')}`
+  if (areaSelection) {
+    const conteo = Number(p.conteo || 0)
+    if (conteo <= 0) {
+      return (
+        `<div class="landing-map-popup"><strong>Celda dentro del área seleccionada</strong><br/>` +
+        `Sin incidentes en el periodo activo.</div>`
+      )
+    }
+    const pct = pctParticipacionArea(conteo, totalIncidentes)
+    const pctLine =
+      pct != null
+        ? `<br/>Participación: <strong>${escapeHtml(fmtNum(pct, 1))} %</strong> del total del área`
+        : ''
+    return (
+      `<div class="landing-map-popup"><strong>Celda dentro del área seleccionada</strong><br/>` +
+      `ID: <strong>${escapeHtml(celdaId)}</strong><br/>` +
+      `Incidentes: <strong>${escapeHtml(conteo)}</strong>${pctLine}</div>`
+    )
+  }
+  return (
+    `<div class="landing-map-popup"><strong>Celda P14</strong><br/>` +
+    `ID: <strong>${escapeHtml(celdaId)}</strong><br/>` +
+    `Incidentes: <strong>${escapeHtml(p.conteo)}</strong><br/>` +
+    `Densidad: <strong>${fmtChoroplethVal(p.densidad_por_km2, 'densidad')}</strong> / km²` +
+    (p.recortada ? '<br/><em>Recortada al polígono</em>' : '') +
+    `</div>`
+  )
 }
 
 const VIEWPORT_COMPACT_PX = 900
@@ -237,10 +343,18 @@ function ChoroplethLayer({ geojson, comunaId, barrioId, subdued = false }) {
       onEachFeature: (feature, leafletLayer) => {
         const p = feature?.properties || {}
         const titulo = p.comuna_nombre ? `${p.nombre} (${p.comuna_nombre})` : p.nombre || 'Territorio'
+        const ratioLine =
+          p.ratio_vs_ciudad != null && Number.isFinite(Number(p.ratio_vs_ciudad))
+            ? `<br/>Ratio vs ciudad (G02): <strong>${fmtChoroplethVal(p.ratio_vs_ciudad, 'densidad')}</strong>×` +
+              `<br/><span class="landing-map-popup-note">${escapeHtml(RATIO_VS_CIUDAD_HELP)}</span>`
+            : ''
         leafletLayer.bindPopup(
           `<div class="landing-map-popup"><strong>${escapeHtml(titulo)}</strong><br/>` +
+            `Superficie: <strong>${fmtAreaKm2(p.area_km2)}</strong> km²<br/>` +
             `Incidentes: <strong>${escapeHtml(p.incidentes)}</strong><br/>` +
-            `Densidad: <strong>${fmtChoroplethVal(p.densidad_km2, 'densidad')}</strong> / km²</div>`,
+            `Densidad: <strong>${fmtChoroplethVal(p.densidad_km2, 'densidad')}</strong> / km²` +
+            ratioLine +
+            `</div>`,
         )
       },
     })
@@ -252,8 +366,89 @@ function ChoroplethLayer({ geojson, comunaId, barrioId, subdued = false }) {
   return null
 }
 
-function HotspotGridLayer({ geojson, editorBlocksMap = false }) {
+function hotspotCellCenter(feature, leafletLayer) {
+  try {
+    if (leafletLayer?.getBounds?.()?.isValid?.()) {
+      const center =
+        typeof leafletLayer.getCenter === 'function'
+          ? leafletLayer.getCenter()
+          : leafletLayer.getBounds().getCenter()
+      if (center && Number.isFinite(center.lat) && Number.isFinite(center.lng)) {
+        return center
+      }
+    }
+  } catch {
+    /* fallback below */
+  }
+
+  const geom = feature?.geometry
+  const ring =
+    geom?.type === 'Polygon'
+      ? geom.coordinates?.[0]
+      : geom?.type === 'MultiPolygon'
+        ? geom.coordinates?.[0]?.[0]
+        : null
+  if (!ring?.length) return null
+
+  const n = ring.length > 1 ? ring.length - 1 : ring.length
+  if (n <= 0) return null
+
+  let lat = 0
+  let lng = 0
+  for (let i = 0; i < n; i += 1) {
+    lng += Number(ring[i][0] || 0)
+    lat += Number(ring[i][1] || 0)
+  }
+  return L.latLng(lat / n, lng / n)
+}
+
+function hotspotsMatchTerritoryFilter(hotspotsData, comunaId, barrioId) {
+  const filtros = hotspotsData?.meta?.filtros
+  if (!filtros) return !comunaId && !barrioId
+  if (barrioId) {
+    return filtros.barrio_id != null && String(filtros.barrio_id) === String(barrioId)
+  }
+  if (comunaId) {
+    return filtros.comuna_id != null && String(filtros.comuna_id) === String(comunaId)
+  }
+  return filtros.comuna_id == null && filtros.barrio_id == null
+}
+
+function hotspotsMatchAreaSelection(hotspotsData, areaSelectionGeojson) {
+  if (!areaSelectionGeojson || !hotspotsData?.meta) return false
+  if (hotspotsData.meta.metodo !== 'area') return false
+  return Boolean(hotspotsData.meta.filtro_geojson) && (hotspotsData.features?.length ?? 0) > 0
+}
+
+function createHotspotRankLabel(map, latlng, labelText) {
+  const pane = ensureHotspotsLabelPane(map)
+  const size = HOTSPOT_RANK_LABEL_SIZE_PX
+  const half = size / 2
+  return L.marker(latlng, {
+    pane,
+    interactive: false,
+    keyboard: false,
+    zIndexOffset: 1000,
+    icon: L.divIcon({
+      className: 'landing-map-cell-rank-marker',
+      html: `<span class="landing-map-cell-rank-badge">${labelText}</span>`,
+      iconSize: [size, size],
+      iconAnchor: [half, half],
+    }),
+  })
+}
+
+function HotspotGridLayer({
+  geojson,
+  editorBlocksMap = false,
+  areaSelectionActive = false,
+  showCellIds = false,
+  cellIdMaxRank = null,
+  cellIdLabelMode = 'rank',
+}) {
   const map = useMap()
+  const rendererRef = useRef(null)
+
   useEffect(() => {
     setHotspotPanesInteractive(map, !editorBlocksMap)
     return () => setHotspotPanesInteractive(map, true)
@@ -261,16 +456,29 @@ function HotspotGridLayer({ geojson, editorBlocksMap = false }) {
 
   useEffect(() => {
     if (!geojson?.features?.length) return undefined
-    const mallaCompleta = Boolean(geojson.meta?.malla_completa)
-    const maxD = Number(geojson.meta?.densidad_max_km2 || 0)
-    const densities = geojson.features
-      .map((f) => Number(f?.properties?.densidad_por_km2 || 0))
-      .filter((d) => d > 0)
-    const minD = densities.length ? Math.min(...densities) : 0
-    const gridPane = ensureHotspotsGridPane(map)
 
-    const layer = L.geoJSON(geojson, {
+    let layer = null
+    let rankLabels = null
+
+    try {
+      const mallaCompleta = Boolean(geojson.meta?.malla_completa)
+      const totalIncidentes = Number(geojson.meta?.total_incidentes || 0)
+      const maxD = Number(geojson.meta?.densidad_max_km2 || 0)
+      const densities = geojson.features
+        .map((f) => Number(f?.properties?.densidad_por_km2 || 0))
+        .filter((d) => d > 0)
+      const minD = densities.length ? Math.min(...densities) : 0
+      const gridPane = ensureHotspotsGridPane(map)
+      setHotspotPanesInteractive(map, !editorBlocksMap)
+
+      if (!rendererRef.current) rendererRef.current = L.canvas({ pane: gridPane, padding: 0.35 })
+
+      rankLabels = L.layerGroup()
+
+      layer = L.geoJSON(geojson, {
       pane: gridPane,
+      renderer: rendererRef.current,
+      interactive: true,
       style: (feature) => {
         const conteo = Number(feature?.properties?.conteo || 0)
         const d = Number(feature?.properties?.densidad_por_km2 || 0)
@@ -280,25 +488,80 @@ function HotspotGridLayer({ geojson, editorBlocksMap = false }) {
             fillOpacity: 0.72,
             color: '#64748b',
             weight: 0.85,
+            interactive: true,
           }
         }
-        return choroplethStyle(d, minD, maxD, d <= 0, false, 0.82)
+        return { ...choroplethStyle(d, minD, maxD, d <= 0, false, 0.82), interactive: true }
       },
       onEachFeature: (feature, leafletLayer) => {
         const p = feature?.properties || {}
-        leafletLayer.bindPopup(
-          `<div class="landing-map-popup"><strong>Celda P14</strong><br/>` +
-            `Incidentes: <strong>${escapeHtml(p.conteo)}</strong><br/>` +
-            `Densidad: <strong>${fmtChoroplethVal(p.densidad_por_km2, 'densidad')}</strong> / km²<br/>` +
-            `Área celda: <strong>${fmtChoroplethVal(p.area_km2, 'densidad')}</strong> km²` +
-            (p.recortada ? '<br/><em>Recortada al polígono</em>' : '') +
-            `</div>`,
-        )
+        const popupOpts = { areaSelection: areaSelectionActive, totalIncidentes }
+        const popupHtml = buildHotspotCellPopupHtml(p, popupOpts)
+        const celdaId = p.celda_id || `C${String(p.rank || '').padStart(3, '0')}`
+        leafletLayer.bindPopup(popupHtml, {
+          className: 'landing-map-leaflet-popup',
+          maxWidth: 280,
+        })
+
+        const rank = Number(p.rank || 0)
+        const conteo = Number(p.conteo || 0)
+        const withinRankLimit =
+          cellIdMaxRank == null || (rank > 0 && rank <= cellIdMaxRank)
+        const showRankOnCell = showCellIds && withinRankLimit && rank > 0 && conteo > 0
+        if (showRankOnCell) {
+          const useRankLabel = cellIdLabelMode === 'rank'
+          const labelText = useRankLabel ? String(rank) : String(celdaId)
+          if (useRankLabel) {
+            const center = hotspotCellCenter(feature, leafletLayer)
+            if (center) {
+              rankLabels.addLayer(createHotspotRankLabel(map, center, labelText))
+            }
+          } else {
+            leafletLayer.bindTooltip(labelText, {
+              permanent: true,
+              direction: 'center',
+              className: 'landing-map-cell-id-tooltip',
+              opacity: 0.98,
+              interactive: false,
+            })
+          }
+        }
+
+        if (areaSelectionActive && !showRankOnCell) {
+          leafletLayer.bindTooltip(buildHotspotAreaCellTooltipHtml(p, totalIncidentes), {
+            sticky: true,
+            direction: 'top',
+            className: 'landing-map-leaflet-tooltip',
+            opacity: 0.96,
+            interactive: true,
+          })
+          leafletLayer.on('mouseover', function onCellOver() {
+            this.openTooltip()
+          })
+          leafletLayer.on('mouseout', function onCellOut() {
+            this.closeTooltip()
+          })
+        }
+
+        leafletLayer.on('click', function onCellClick(e) {
+          L.DomEvent.stopPropagation(e)
+          this.openPopup(e.latlng)
+        })
       },
     })
-    layer.addTo(map)
-    return () => map.removeLayer(layer)
-  }, [map, geojson])
+      layer.bringToFront()
+      layer.addTo(map)
+      rankLabels.addTo(map)
+    } catch (error) {
+      console.error('HotspotGridLayer: no se pudo dibujar la cuadrícula', error)
+      return undefined
+    }
+
+    return () => {
+      if (layer) map.removeLayer(layer)
+      if (rankLabels) map.removeLayer(rankLabels)
+    }
+  }, [map, geojson, areaSelectionActive, editorBlocksMap, showCellIds, cellIdMaxRank, cellIdLabelMode])
   return null
 }
 
@@ -459,7 +722,11 @@ function DetailPointsLayer({ puntos, showHeat, showMarkers, mapZoom }) {
   return null
 }
 
-export function LandingIncidentMap({ variant = 'embedded' }) {
+export function LandingIncidentMap({
+  variant = 'embedded',
+  onReportContextChange,
+  forceShowHotspotCellIds = false,
+}) {
   const isPage = variant === 'page'
   const compact = useViewportCompact()
 
@@ -483,6 +750,8 @@ export function LandingIncidentMap({ variant = 'embedded' }) {
   const [showAdvanced, setShowAdvanced] = useState(false)
 
   const [choroplethData, setChoroplethData] = useState(null)
+  const [territorioLookupChoropleth, setTerritorioLookupChoropleth] = useState(null)
+  const [territorioLookupLoading, setTerritorioLookupLoading] = useState(false)
   const [pointsData, setPointsData] = useState(null)
   const [hotspotsData, setHotspotsData] = useState(null)
   const [err, setErr] = useState(null)
@@ -587,6 +856,14 @@ export function LandingIncidentMap({ variant = 'embedded' }) {
     setAreaEditorPhase('inactive')
     setAreaSelectionGeojson(null)
     setHotspotsData(null)
+  }, [])
+
+  const handleRedrawArea = useCallback(() => {
+    areaDismissedForGeojsonRef.current = null
+    areaReloadRef.current = null
+    setHotspotsData(null)
+    setAreaEditorPhase('draw')
+    window.setTimeout(() => areaSelectionRef.current?.reactivate?.(), 50)
   }, [])
 
   const applyBundleToState = useCallback(
@@ -782,7 +1059,7 @@ export function LandingIncidentMap({ variant = 'embedded' }) {
     setLoadingOverlay(viewMode !== 'territorio')
 
     const baseParams = buildBaseParams()
-    const nivel = resolveChoroplethNivel(comunaId, barrioId)
+    const nivel = resolveChoroplethNivel(viewMode, comunaId, barrioId)
     const choroplethParams = { ...baseParams, nivel, metrica: choroplethMetric }
 
     try {
@@ -887,12 +1164,12 @@ export function LandingIncidentMap({ variant = 'embedded' }) {
   useEffect(() => {
     if (viewMode !== 'cuadricula' || metodoHotspot !== 'area') return undefined
     if (!hotspotsData?.features?.length || !areaSelectionGeojson) return undefined
-    if (areaEditorPhase !== 'adjust') return undefined
     if (areaDismissedForGeojsonRef.current === areaSelectionGeojson) return undefined
     areaDismissedForGeojsonRef.current = areaSelectionGeojson
     areaSelectionRef.current?.dismissEditor?.()
+    setAreaEditorPhase('inactive')
     return undefined
-  }, [hotspotsData, areaSelectionGeojson, areaEditorPhase, viewMode, metodoHotspot])
+  }, [hotspotsData, areaSelectionGeojson, viewMode, metodoHotspot])
 
   const pageInitRef = useRef(false)
   useEffect(() => {
@@ -1012,20 +1289,66 @@ export function LandingIncidentMap({ variant = 'embedded' }) {
       .catch(() => setBarrios([]))
   }, [comunaId])
 
+  useEffect(() => {
+    if ((!comunaId && !barrioId) || !desde || !hasta) {
+      setTerritorioLookupChoropleth(null)
+      setTerritorioLookupLoading(false)
+      return undefined
+    }
+
+    const targetId = barrioId || comunaId
+    const lookupNivel = barrioId ? 'barrio' : 'comuna'
+
+    if (choroplethHasFeatures(choroplethData) && findTerritorioFeature(choroplethData, targetId)) {
+      setTerritorioLookupChoropleth(null)
+      setTerritorioLookupLoading(false)
+      return undefined
+    }
+
+    const fk = buildFilterKey({ desde, hasta, comunaId, barrioId, claseId, modoTerritorio })
+    const bundle = getMapBundle(fk)
+    const cached = bundle?.choropleth?.[choroplethCacheKey(lookupNivel, choroplethMetric)]
+    if (cached && findTerritorioFeature(cached, targetId)) {
+      setTerritorioLookupChoropleth(cached)
+      setTerritorioLookupLoading(false)
+      return undefined
+    }
+
+    let cancelled = false
+    setTerritorioLookupLoading(true)
+    void fetchDashboardChoroplethTerritorial({
+      ...buildBaseParams(),
+      nivel: lookupNivel,
+      metrica: choroplethMetric,
+    })
+      .then((data) => {
+        if (!cancelled) setTerritorioLookupChoropleth(data)
+      })
+      .catch(() => {
+        if (!cancelled) setTerritorioLookupChoropleth(null)
+      })
+      .finally(() => {
+        if (!cancelled) setTerritorioLookupLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    comunaId,
+    barrioId,
+    choroplethData,
+    desde,
+    hasta,
+    claseId,
+    modoTerritorio,
+    choroplethMetric,
+    cacheRevision,
+    buildBaseParams,
+  ])
+
   const puntos = useMemo(() => pointsData?.puntos ?? [], [pointsData])
-  const choroplethMeta = choroplethData?.meta
   const pointsMeta = pointsData?.meta
-  const hasChoropleth = (choroplethData?.features?.length ?? 0) > 0
-  const hasHotspots = (hotspotsData?.features?.length ?? 0) > 0
-  const showHotspotMapShell =
-    viewMode === 'cuadricula' && (hasHotspots || metodoHotspot === 'area')
-  const hasMapLayers =
-    viewMode === 'cuadricula'
-      ? showHotspotMapShell
-      : hasChoropleth || (viewMode === 'detalle' && puntos.length > 0)
-  const mapBusy = loadingBase || loadingOverlay || (isPage && pageBlocking)
-  const interactionLocked = isPage && pageBlocking
-  const currentViewHint = VIEW_MODES.find((m) => m.id === viewMode)?.hint ?? ''
 
   const currentFilterKey = useMemo(
     () =>
@@ -1040,6 +1363,126 @@ export function LandingIncidentMap({ variant = 'embedded' }) {
     const bundle = getMapBundle(currentFilterKey)
     return Boolean(bundle && isBundleWarmComplete(bundle))
   }, [currentFilterKey, cacheRevision])
+
+  const choroplethNivel = useMemo(
+    () => resolveChoroplethNivel(viewMode, comunaId, barrioId),
+    [viewMode, comunaId, barrioId],
+  )
+
+  const bundleChoroplethLayer = useMemo(() => {
+    if (!currentFilterKey) return null
+    const bundle = getMapBundle(currentFilterKey)
+    return bundle?.choropleth?.[choroplethCacheKey(choroplethNivel, choroplethMetric)] ?? null
+  }, [currentFilterKey, choroplethNivel, choroplethMetric, cacheRevision])
+
+  const activeChoroplethData = useMemo(
+    () =>
+      resolveChoroplethLayer({
+        choroplethData,
+        bundleLayer: bundleChoroplethLayer,
+        lookupChoroplethData: territorioLookupChoropleth,
+        nivel: choroplethNivel,
+        comunaId,
+        barrioId,
+        requireTerritoryMatch: Boolean(barrioId),
+      }),
+    [
+      choroplethData,
+      bundleChoroplethLayer,
+      territorioLookupChoropleth,
+      choroplethNivel,
+      comunaId,
+      barrioId,
+    ],
+  )
+
+  const choroplethForResumen = useMemo(
+    () =>
+      resolveChoroplethLayer({
+        choroplethData,
+        bundleLayer: bundleChoroplethLayer,
+        lookupChoroplethData: territorioLookupChoropleth,
+        nivel: choroplethNivel,
+        comunaId,
+        barrioId,
+        requireTerritoryMatch: Boolean(comunaId || barrioId),
+      }),
+    [
+      choroplethData,
+      bundleChoroplethLayer,
+      territorioLookupChoropleth,
+      choroplethNivel,
+      comunaId,
+      barrioId,
+    ],
+  )
+
+  const comunaFallbackChoropleth = useMemo(() => {
+    if (!barrioId || activeChoroplethData || !comunaId) return null
+    const bundle = currentFilterKey ? getMapBundle(currentFilterKey) : null
+    return resolveChoroplethLayer({
+      choroplethData,
+      bundleLayer: bundle?.choropleth?.[choroplethCacheKey('comuna', choroplethMetric)] ?? null,
+      lookupChoroplethData: null,
+      nivel: 'comuna',
+      comunaId,
+      barrioId: '',
+      requireTerritoryMatch: true,
+    })
+  }, [
+    barrioId,
+    activeChoroplethData,
+    comunaId,
+    choroplethData,
+    currentFilterKey,
+    choroplethMetric,
+    cacheRevision,
+  ])
+
+  const mapChoroplethData = activeChoroplethData ?? comunaFallbackChoropleth
+  const barrioSinPoligono = Boolean(barrioId && !activeChoroplethData && comunaFallbackChoropleth)
+
+  const choroplethMeta = mapChoroplethData?.meta
+  const hasChoropleth = choroplethHasFeatures(mapChoroplethData)
+  const hasHotspots = (hotspotsData?.features?.length ?? 0) > 0
+  const showHotspotMapShell =
+    viewMode === 'cuadricula' && (hasHotspots || metodoHotspot === 'area')
+  const showAreaSelectionControl =
+    viewMode === 'cuadricula' && metodoHotspot === 'area' && showHotspotMapShell
+  const hasMapLayers =
+    viewMode === 'cuadricula'
+      ? showHotspotMapShell
+      : hasChoropleth || (viewMode === 'detalle' && puntos.length > 0)
+  const mapBusy = loadingBase || loadingOverlay || (isPage && pageBlocking)
+  const interactionLocked = isPage && pageBlocking
+  const currentViewHint = VIEW_MODES.find((m) => m.id === viewMode)?.hint ?? ''
+
+  const territorioResumen = useMemo(
+    () =>
+      resolveTerritorioResumen({
+        comunaId,
+        barrioId,
+        choroplethData: choroplethForResumen,
+        lookupChoroplethData: territorioLookupChoropleth,
+        desde,
+        hasta,
+        metrica: choroplethMetric,
+      }),
+    [
+      comunaId,
+      barrioId,
+      choroplethForResumen,
+      territorioLookupChoropleth,
+      desde,
+      hasta,
+      choroplethMetric,
+    ],
+  )
+
+  const territorioResumenLoading =
+    Boolean(comunaId || barrioId) &&
+    !territorioResumen &&
+    (territorioLookupLoading || (mapBusy && viewMode !== 'cuadricula'))
 
   const legendScale = useMemo(() => {
     if (viewMode === 'cuadricula' && hotspotsData?.features?.length) {
@@ -1082,7 +1525,7 @@ export function LandingIncidentMap({ variant = 'embedded' }) {
     if (viewMode === 'cuadricula') {
       parts.push(
         metodoHotspot === 'area'
-          ? 'Hotspots P14 · área dibujada · celda 100 m'
+          ? 'Hotspots P14 · área dibujada'
           : `Hotspots P14 · celda ${tamanoCeldaM} m`,
       )
       if (hotspotsData?.meta) {
@@ -1105,6 +1548,72 @@ export function LandingIncidentMap({ variant = 'embedded' }) {
     }
     return parts.join(' · ')
   }, [desde, hasta, choroplethMeta, viewMode, pointsMeta, hotspotsData, tamanoCeldaM, metodoHotspot])
+
+  useEffect(() => {
+    if (!onReportContextChange) return
+    const comuna = (catalogos.comunas || []).find((c) => String(c.id) === String(comunaId))
+    const barrio = (barrios || []).find((b) => String(b.id) === String(barrioId))
+    const clase = (catalogos.clases_incidente || []).find((c) => String(c.id) === String(claseId))
+
+    const filtros = {
+      ...(desde ? { desde } : {}),
+      ...(hasta ? { hasta } : {}),
+      ...(comuna ? { comuna: comuna.nombre } : {}),
+      ...(barrio ? { barrio: barrio.nombre } : {}),
+      ...(clase ? { clase_incidente: clase.nombre } : {}),
+      territorio: modoTerritorio === 'espacial' ? 'Polígono PostGIS' : 'Registro Mede',
+      modo_vista:
+        viewMode === 'territorio'
+          ? 'Territorio'
+          : viewMode === 'detalle'
+            ? 'Detalle'
+            : 'Hotspots',
+    }
+    const query = {
+      ...(desde ? { desde } : {}),
+      ...(hasta ? { hasta } : {}),
+      ...(comunaId ? { comuna_id: comunaId } : {}),
+      ...(barrioId ? { barrio_id: barrioId } : {}),
+      ...(claseId ? { clase_incidente_id: claseId } : {}),
+      ...(modoTerritorio === 'espacial' ? { territorio: 'espacial' } : {}),
+      view_mode: viewMode,
+      choropleth_metric: choroplethMetric,
+      map_limite: mapLimite,
+      tamano_celda_m: tamanoCeldaM,
+      metodo_hotspot: metodoHotspot,
+      ...(areaSelectionGeojson ? { geojson: areaSelectionGeojson } : {}),
+    }
+    onReportContextChange({ filtros, query, mapaLeyenda: legendScale })
+  }, [
+    onReportContextChange,
+    desde,
+    hasta,
+    comunaId,
+    barrioId,
+    claseId,
+    modoTerritorio,
+    viewMode,
+    choroplethMetric,
+    mapLimite,
+    tamanoCeldaM,
+    metodoHotspot,
+    areaSelectionGeojson,
+    catalogos,
+    barrios,
+    legendScale,
+  ])
+
+  const hotspotsCoincidenConFiltro = hotspotsMatchTerritoryFilter(hotspotsData, comunaId, barrioId)
+  const areaHotspotsListos =
+    metodoHotspot === 'area' &&
+    Boolean(areaSelectionGeojson) &&
+    hasHotspots &&
+    !areaEditorBlocksMap &&
+    hotspotsMatchAreaSelection(hotspotsData, areaSelectionGeojson)
+  const showHotspotRankLabels =
+    forceShowHotspotCellIds ||
+    areaHotspotsListos ||
+    ((Boolean(comunaId) || Boolean(barrioId)) && hotspotsCoincidenConFiltro)
 
   if (!initOk && !isPage) {
     return (
@@ -1207,6 +1716,13 @@ export function LandingIncidentMap({ variant = 'embedded' }) {
                 ))}
               </select>
             </label>
+            {(comunaId || barrioId) && (
+              <MapTerritorioResumenPanel
+                resumen={territorioResumen}
+                loading={territorioResumenLoading}
+                compact
+              />
+            )}
           </div>
 
           <div className="landing-map-section">
@@ -1232,13 +1748,21 @@ export function LandingIncidentMap({ variant = 'embedded' }) {
               </p>
             )}
             {viewMode !== 'cuadricula' && (
-              <label className="filter-field">
-                Intensidad
-                <select value={choroplethMetric} onChange={(e) => setChoroplethMetric(e.target.value)}>
-                  <option value="densidad">Densidad (incidentes / km²)</option>
-                  <option value="conteo">Número de incidentes</option>
-                </select>
-              </label>
+              <>
+                <label className="filter-field">
+                  Intensidad
+                  <select value={choroplethMetric} onChange={(e) => setChoroplethMetric(e.target.value)}>
+                    <option value="densidad">Densidad (incidentes / km²)</option>
+                    <option value="conteo">Número de incidentes</option>
+                  </select>
+                </label>
+                <p className="muted small landing-map-filter-help">
+                  {INTENSIDAD_HELP[choroplethMetric] ?? INTENSIDAD_HELP.densidad}
+                </p>
+              </>
+            )}
+            {viewMode === 'territorio' && choroplethMetric === 'densidad' && (
+              <p className="muted small landing-map-filter-help">{RATIO_VS_CIUDAD_HELP}</p>
             )}
           </div>
 
@@ -1255,6 +1779,9 @@ export function LandingIncidentMap({ variant = 'embedded' }) {
                 <option value="espacial">Polígono PostGIS</option>
               </select>
             </label>
+            <p className="muted small landing-map-filter-help">
+              {TERRITORIO_FILTRO_HELP[modoTerritorio] ?? TERRITORIO_FILTRO_HELP.registro}
+            </p>
             {viewMode === 'detalle' && (
               <label className="filter-field">
                 Tope de puntos
@@ -1280,11 +1807,7 @@ export function LandingIncidentMap({ variant = 'embedded' }) {
                       ))}
                     </select>
                   </label>
-                ) : (
-                  <p className="muted small landing-map-area-cell-note">
-                    Resolución fija en modo área: <strong>100 m</strong> (mayor detalle dentro del polígono).
-                  </p>
-                )}
+                ) : null}
                 <label className="filter-field">
                   Método
                   <select
@@ -1309,21 +1832,34 @@ export function LandingIncidentMap({ variant = 'embedded' }) {
                 {metodoHotspot === 'area' && (
                   <>
                     <p className="muted small landing-map-area-hint">
-                      <strong>Dibujar libre:</strong> botón del mapa → clics para cada vértice → cierre en el punto
-                      verde (o arrastre para un rectángulo) → «Cargar / actualizar filtros». Al cargar, se oculta el
-                      editor azul y se ven las celdas.
+                      <strong>Dibujar:</strong> botón del mapa → vértices → cierre en el punto verde → «Cargar /
+                      actualizar filtros».
                       <br />
-                      <strong>Borrar:</strong> botón del mapa o «Borrar área» abajo.
+                      <strong>Celdas:</strong> pase el cursor para ver incidentes y % del área; clic para detalle.
+                      <br />
+                      <strong>Redibujar / Borrar:</strong> botones abajo cuando ya hay un área definida.
                     </p>
                     {areaSelectionGeojson && (
-                      <button
-                        type="button"
-                        className="btn btn-secondary landing-map-area-clear"
-                        onClick={handleClearAreaSelection}
-                        disabled={mapBusy}
-                      >
-                        Borrar área
-                      </button>
+                      <div className="landing-map-area-actions">
+                        {hasHotspots && !areaEditorBlocksMap && (
+                          <button
+                            type="button"
+                            className="btn btn-secondary landing-map-area-redraw"
+                            onClick={handleRedrawArea}
+                            disabled={mapBusy}
+                          >
+                            Redibujar área
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="btn btn-secondary landing-map-area-clear"
+                          onClick={handleClearAreaSelection}
+                          disabled={mapBusy}
+                        >
+                          Borrar área
+                        </button>
+                      </div>
                     )}
                   </>
                 )}
@@ -1365,6 +1901,21 @@ export function LandingIncidentMap({ variant = 'embedded' }) {
             />
           )}
 
+          {viewMode !== 'cuadricula' && (comunaId || barrioId) && (
+            <MapTerritorioResumenPanel
+              resumen={territorioResumen}
+              loading={territorioResumenLoading}
+            />
+          )}
+
+          {barrioSinPoligono && (
+            <p className="landing-map-barrio-sin-poligono muted small" role="status">
+              El barrio seleccionado no tiene polígono cartográfico cargado en el sistema (límite
+              oficial en PostGIS). Se muestra el contorno de la comuna; los incidentes del barrio
+              siguen aplicándose en los filtros.
+            </p>
+          )}
+
           <div className="landing-map-view-wrap">
             {!hasMapLayers && !mapBusy ? (
               <div className="landing-map-shell landing-map-empty muted" role="status">
@@ -1372,7 +1923,9 @@ export function LandingIncidentMap({ variant = 'embedded' }) {
                   ? hotspotsData.meta.descripcion
                   : viewMode === 'cuadricula' && metodoHotspot === 'area'
                     ? 'Dibuje un área en el mapa (control de selección) y aplique los filtros.'
-                    : 'Sin datos para estos filtros. Amplíe el periodo o quite filtros.'}
+                    : barrioId
+                      ? 'El barrio seleccionado no tiene geometría en el mapa y no hay contorno comunal disponible para estos filtros.'
+                      : 'Sin datos para estos filtros. Amplíe el periodo o quite filtros.'}
               </div>
             ) : (
               <div
@@ -1438,12 +1991,12 @@ export function LandingIncidentMap({ variant = 'embedded' }) {
                   {hasChoropleth && viewMode !== 'cuadricula' && (
                     <>
                       <ChoroplethLayer
-                        geojson={choroplethData}
+                        geojson={mapChoroplethData}
                         comunaId={comunaId}
-                        barrioId={barrioId}
+                        barrioId={barrioSinPoligono ? '' : barrioId}
                         subdued={viewMode === 'detalle'}
                       />
-                      <MapFitBoundsOnce geojson={choroplethData} enabled={!mapFocus} />
+                      <MapFitBoundsOnce geojson={mapChoroplethData} enabled={!mapFocus} />
                     </>
                   )}
                   {viewMode === 'cuadricula' && hasHotspots && (
@@ -1451,6 +2004,18 @@ export function LandingIncidentMap({ variant = 'embedded' }) {
                       <HotspotGridLayer
                         geojson={hotspotsData}
                         editorBlocksMap={metodoHotspot === 'area' && areaEditorBlocksMap}
+                        areaSelectionActive={
+                          metodoHotspot === 'area' && Boolean(areaSelectionGeojson)
+                        }
+                        showCellIds={showHotspotRankLabels}
+                        cellIdMaxRank={
+                          forceShowHotspotCellIds
+                            ? HOTSPOT_CAPTURE_LABEL_MAX_RANK
+                            : showHotspotRankLabels
+                              ? HOTSPOT_MAP_LABEL_MAX_RANK
+                              : null
+                        }
+                        cellIdLabelMode="rank"
                       />
                       {metodoHotspot === 'area' && areaSelectionGeojson && (
                         <MapAreaOutline geometryJson={areaSelectionGeojson} />
@@ -1469,7 +2034,7 @@ export function LandingIncidentMap({ variant = 'embedded' }) {
                       mapZoom={mapZoom}
                     />
                   )}
-                  {viewMode === 'cuadricula' && metodoHotspot === 'area' && showHotspotMapShell && (
+                  {showAreaSelectionControl && (
                     <MapAreaSelection
                       ref={areaSelectionRef}
                       enabled

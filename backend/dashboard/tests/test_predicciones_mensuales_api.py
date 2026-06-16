@@ -87,7 +87,7 @@ def test_dashboard_predicciones_modelo_invalido(analista_client):
         {
             "desde": "2021-01-01",
             "hasta": "2021-03-31",
-            "modelo": "arima",
+            "modelo": "prophet",
         },
     )
     assert r.status_code == 400

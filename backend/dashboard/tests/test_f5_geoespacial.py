@@ -22,7 +22,7 @@ class DensidadTerritorialTests(TestCase):
                 "densidad_km2": 50.0,
             }
         ]
-        with patch(
+        with patch("dashboard.densidad_territorial._count_incidentes", return_value=100), patch(
             "dashboard.densidad_territorial._query_densidad_ciudad",
             return_value=(100, 10.0),
         ), patch(

@@ -10,7 +10,7 @@ function geometryFromPolygon(polygon) {
 
 /**
  * @typedef {import('./mapHotspotPanes.js').AreaEditorPhase} AreaEditorPhase
- * @typedef {{ clear: () => void, dismissEditor: () => void }} MapAreaSelectionHandle
+ * @typedef {{ clear: () => void, dismissEditor: () => void, reactivate: () => void }} MapAreaSelectionHandle
  */
 
 /**
@@ -47,6 +47,21 @@ export const MapAreaSelection = forwardRef(function MapAreaSelection(
       map.dragging.enable()
       notifyPhase('inactive')
     },
+    reactivate() {
+      const ctrl = controlRef.current
+      if (!ctrl) return
+      if (typeof ctrl.activate === 'function') {
+        ctrl.activate()
+        notifyPhase('draw')
+        return
+      }
+      const btn =
+        ctrl._button ??
+        ctrl._container?.querySelector?.('button, a') ??
+        ctrl.getContainer?.()?.querySelector?.('button, a')
+      if (btn) btn.click()
+      notifyPhase('draw')
+    },
   }))
 
   useEffect(() => {
@@ -57,7 +72,6 @@ export const MapAreaSelection = forwardRef(function MapAreaSelection(
       }
       map.dragging.enable()
       notifyPhase('inactive')
-      onAreaChangeRef.current(null)
       return undefined
     }
 
@@ -77,7 +91,6 @@ export const MapAreaSelection = forwardRef(function MapAreaSelection(
       onButtonDeactivate: () => {
         map.dragging.enable()
         notifyPhase('inactive')
-        onAreaChangeRef.current(null)
       },
     })
     map.addControl(control)

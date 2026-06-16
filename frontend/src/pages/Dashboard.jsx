@@ -23,6 +23,7 @@ import {
   fetchDashboardPorDiaSemana,
   fetchDashboardRangoFechas,
 } from '../api/client.js'
+import { GenerarReporteButton } from '../components/reportes/GenerarReporteButton.jsx'
 
 /** Cobertura aproximada del archivo `salida/Mede_Victimas_inci_depurado.xlsx` si falla la API de rango */
 const FECHAS_REF_MEDE = {
@@ -230,6 +231,33 @@ export function Dashboard() {
       barrio_id: barrioId || undefined,
       clase_incidente_id: claseId || undefined,
       ...(modoTerritorio === 'espacial' ? { territorio: 'espacial' } : {}),
+    }),
+    [desde, hasta, comunaId, barrioId, claseId, modoTerritorio],
+  )
+
+  const filtrosReporte = useMemo(() => {
+    const comuna = (catalogos.comunas || []).find((c) => String(c.id) === comunaId)
+    const barrio = barrios.find((b) => String(b.id) === barrioId)
+    const clase = (catalogos.clases_incidente || []).find((c) => String(c.id) === claseId)
+    return {
+      desde,
+      hasta,
+      ...(comuna ? { comuna: comuna.nombre } : {}),
+      ...(barrio ? { barrio: barrio.nombre } : {}),
+      ...(clase ? { clase_incidente: clase.nombre } : {}),
+      territorio: modoTerritorio === 'espacial' ? 'Polígono PostGIS' : 'Registro Mede',
+    }
+  }, [desde, hasta, comunaId, barrioId, claseId, modoTerritorio, catalogos, barrios])
+
+  const queryReporte = useMemo(
+    () => ({
+      desde,
+      hasta,
+      ...(comunaId ? { comuna_id: comunaId } : {}),
+      ...(barrioId ? { barrio_id: barrioId } : {}),
+      ...(claseId ? { clase_incidente_id: claseId } : {}),
+      ...(modoTerritorio === 'espacial' ? { territorio: 'espacial' } : {}),
+      top_n: 10,
     }),
     [desde, hasta, comunaId, barrioId, claseId, modoTerritorio],
   )
@@ -443,14 +471,24 @@ export function Dashboard() {
     <div className="dashboard">
       {loading && !data && !err && <p className="muted">Cargando rango de fechas e indicadores…</p>}
 
-      <header className="page-intro">
-        <h1>Tablero de indicadores</h1>
-        <p className="muted">
-          Resumen histórico del periodo filtrado: KPIs con variación respecto al año anterior, evolución mensual,
-          concentración por día de la semana, matriz día×hora, distribución por clase de incidente y rankings de
-          víctimas.
-        </p>
-        <TableroFiltrosGuia />
+      <header className="page-intro page-intro-with-actions">
+        <div className="page-intro-text">
+          <h1>Tablero de indicadores</h1>
+          <p className="muted">
+            Resumen histórico del periodo filtrado: KPIs con variación respecto al año anterior, evolución mensual,
+            concentración por día de la semana, matriz día×hora, distribución por clase de incidente y rankings de
+            víctimas.
+          </p>
+          <TableroFiltrosGuia />
+        </div>
+        <div className="page-intro-actions">
+          <GenerarReporteButton
+            seccion="tablero"
+            seccionEtiqueta="Tablero de indicadores"
+            filtros={filtrosReporte}
+            query={queryReporte}
+          />
+        </div>
       </header>
 
       <section className="panel filter-panel">

@@ -11,7 +11,12 @@ from typing import Any, Literal
 
 from django.db import connection
 
-from .densidad_territorial import _incidentes_where, _query_densidad_ciudad
+from .densidad_territorial import (
+    _count_incidentes,
+    _filtros_baseline_ciudad,
+    _incidentes_where,
+    _query_densidad_ciudad,
+)
 from .kpis import FiltrosKpi
 from .geo_topojson import wrap_choropleth_with_topojson
 from .map_cache import choropleth_cache_key, get_cached_map_payload
@@ -230,12 +235,16 @@ def _build_choropleth_territorial_payload_uncached(
     metrica: MetricaChoropleth,
 ) -> dict[str, Any]:
     wh, params = _incidentes_where(inicio, fin, filtros, None, None)
+    wh_ciudad, params_ciudad = _incidentes_where(
+        inicio, fin, _filtros_baseline_ciudad(filtros), None, None
+    )
     modo = filtros.modo_territorio or "registro"
     col = comuna_fk_col(modo) if nivel == "comuna" else barrio_fk_col(modo)
 
-    total_incidentes, area_ciudad_km2 = _query_densidad_ciudad(wh, params, nivel)
+    total_incidentes = _count_incidentes(wh, params)
+    total_incidentes_ciudad, area_ciudad_km2 = _query_densidad_ciudad(wh_ciudad, params_ciudad, nivel)
     densidad_ciudad = (
-        round(total_incidentes / area_ciudad_km2, 4) if area_ciudad_km2 > 0 else None
+        round(total_incidentes_ciudad / area_ciudad_km2, 4) if area_ciudad_km2 > 0 else None
     )
 
     if nivel == "comuna":

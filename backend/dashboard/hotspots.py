@@ -302,8 +302,10 @@ def _rows_to_feature_collection(
             continue
         densidad = float(row.get("densidad_por_km2") or 0)
         densidad_max = max(densidad_max, densidad)
+        celda_id = f"C{rank:03d}"
         props: dict[str, Any] = {
             "rank": rank,
+            "celda_id": celda_id,
             "conteo": row["conteo"],
             "area_m2": row.get("area_m2"),
             "area_km2": row.get("area_km2"),

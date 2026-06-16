@@ -32,7 +32,7 @@ from .predicciones_mensuales import (
     _year_from_ym,
 )
 
-ModeloProp = Literal["ols", "logistica", "estacional", "media_movil"]
+ModeloProp = Literal["ols", "logistica", "estacional", "media_movil", "arima", "sarima"]
 MIN_VICTIMAS_MES = 10
 
 
@@ -122,6 +122,10 @@ def _clamp_pct(y: float) -> float:
     return max(0.0, min(100.0, y))
 
 
+def _min_meses_proporcion(modelo: ModeloProp, ventana_ma: int = MA_VENTANA_DEFAULT) -> int:
+    return _min_meses_modelo(modelo, ventana_ma)  # type: ignore[arg-type]
+
+
 def _metodo_proporcion(modelo: ModeloProp) -> str:
     if modelo == "estacional":
         return (
@@ -138,6 +142,16 @@ def _metodo_proporcion(modelo: ModeloProp) -> str:
         return (
             "Media móvil simple del % mensual (ventana k meses): suaviza la serie y proyecta "
             "un nivel constante igual a la media de los k meses más recientes del ajuste."
+        )
+    if modelo == "arima":
+        return (
+            "ARIMA sobre la serie mensual de % fatales (escala 0–100): modela dependencia "
+            "temporal y tendencia con diferenciación; requiere al menos 12 meses válidos en el ajuste."
+        )
+    if modelo == "sarima":
+        return (
+            "SARIMA con estacionalidad mensual (periodo 12) sobre % fatales: captura ciclos "
+            "calendario además de la dinámica de corto plazo; requiere al menos 24 meses válidos."
         )
     return (
         "Regresión lineal del % mensual frente al índice de mes 0…n−1 en el periodo de ajuste; "
@@ -176,6 +190,11 @@ def _interpretacion_bondad_proporcion(
             " La media móvil sobre % fatales es una línea base simple: útil para leer el nivel "
             "reciente sin forzar tendencia lineal ni estacionalidad."
         )
+    elif modelo in ("arima", "sarima"):
+        texto += (
+            " ARIMA/SARIMA sobre % fatales modelan la dinámica temporal de la gravedad relativa; "
+            "R² moderado es habitual porque el % mensual es muy volátil."
+        )
     else:
         texto += (
             " OLS sobre % fatales casi siempre deja R² muy bajo (línea plana ~nivel medio); "
@@ -201,8 +220,9 @@ def _aplicar_meta_interpretacion(
     }
     if sin_modelo:
         meta["bondad_nivel"] = "bajo"
+        min_req = _min_meses_proporcion(modelo, int(meta.get("ventana_meses") or MA_VENTANA_DEFAULT))
         meta["interpretacion_bondad"] = (
-            f"No hay al menos {_min_meses_modelo('estacional')} meses con ≥ {MIN_VICTIMAS_MES} víctimas "
+            f"No hay al menos {min_req} meses con ≥ {MIN_VICTIMAS_MES} víctimas "
             "para ajustar. Amplíe fechas o reduzca filtros territoriales."
         )
         return
@@ -318,9 +338,11 @@ def _build_proporcion_single(
         serie_historica.append(row)
 
     if modelo == "media_movil":
-        min_req = _min_meses_modelo("media_movil", ventana)
+        min_req = _min_meses_proporcion("media_movil", ventana)
+    elif modelo in ("arima", "sarima"):
+        min_req = _min_meses_proporcion(modelo)
     else:
-        min_req = _min_meses_modelo("estacional" if modelo == "estacional" else "ols")
+        min_req = _min_meses_proporcion("estacional" if modelo == "estacional" else "ols")
     sin_modelo = len(meses_fit) < min_req
     proyeccion: list[dict[str, Any]] = []
     coeficientes: dict[str, Any] | None = None
@@ -338,6 +360,25 @@ def _build_proporcion_single(
             coeficientes["nota"] = (
                 "Media móvil sobre % fatales (0–100); proyección constante al último valor suavizado."
             )
+        elif modelo in ("arima", "sarima"):
+            from .modelos_arima import ajustar_y_proyectar_arima
+
+            arima_res = ajustar_y_proyectar_arima(
+                pcts_fit,
+                hm,
+                seasonal=(modelo == "sarima"),
+                valor_min=0.0,
+                valor_max=100.0,
+            )
+            if arima_res is None:
+                sin_modelo = True
+            else:
+                yhat, fore_direct, coeficientes = arima_res
+                beta = []
+                coeficientes["nota"] = (
+                    f"{'SARIMA' if modelo == 'sarima' else 'ARIMA'} sobre % fatales (0–100); "
+                    "proyección recortada al rango válido de proporción."
+                )
         else:
             xs = [float(i) for i in range(len(pcts_fit))]
             a, b = _ols_intercept_slope(xs, pcts_fit)
@@ -349,34 +390,37 @@ def _build_proporcion_single(
                 **_metricas_ajuste(pcts_fit, yhat, 2),
             }
 
-        yhat = [_clamp_pct(v) for v in yhat]
-        yhat_by_mes = {mk: round(yhat[i], 2) for i, mk in enumerate(meses_fit)}
-        for row in serie_historica:
-            if row["mes_clave"] in yhat_by_mes:
-                row["ajuste_pct"] = yhat_by_mes[row["mes_clave"]]
+        if not sin_modelo:
+            yhat = [_clamp_pct(v) for v in yhat]
+            yhat_by_mes = {mk: round(yhat[i], 2) for i, mk in enumerate(meses_fit)}
+            for row in serie_historica:
+                if row["mes_clave"] in yhat_by_mes:
+                    row["ajuste_pct"] = yhat_by_mes[row["mes_clave"]]
 
-        _puente_ajuste_hasta_fin_rango(serie_historica, meses_fit, yhat)
+            _puente_ajuste_hasta_fin_rango(serie_historica, meses_fit, yhat)
 
-        if modelo == "logistica":
-            fore_vals = _forecast_logistica(beta, meses_fit, hm)
-        else:
-            fore_vals = _forecast_proporcion(modelo, meses_fit, pcts_fit, beta, yhat, hm)
+            if modelo == "logistica":
+                fore_vals = _forecast_logistica(beta, meses_fit, hm)
+            elif modelo in ("arima", "sarima"):
+                fore_vals = fore_direct
+            else:
+                fore_vals = _forecast_proporcion(modelo, meses_fit, pcts_fit, beta, yhat, hm)
 
-        ultimo_ajuste_rango = serie_historica[-1].get("ajuste_pct") if serie_historica else None
-        mk = meses_all[-1]
-        for i, fv in enumerate(fore_vals):
-            mk = _next_month_clave(mk)
-            pct_proj = round(_clamp_pct(fv), 2)
-            if i == 0 and ultimo_ajuste_rango is not None:
-                pct_proj = round(_clamp_pct(fv if fv > 0 else ultimo_ajuste_rango), 2)
-            proyeccion.append(
-                {
-                    "mes_clave": mk,
-                    "mes_etiqueta": _etiqueta_mes_ym(mk),
-                    "pct_fatales_proyectado": pct_proj,
-                    "ajuste_pct": pct_proj,
-                }
-            )
+            ultimo_ajuste_rango = serie_historica[-1].get("ajuste_pct") if serie_historica else None
+            mk = meses_all[-1]
+            for i, fv in enumerate(fore_vals):
+                mk = _next_month_clave(mk)
+                pct_proj = round(_clamp_pct(fv), 2)
+                if i == 0 and ultimo_ajuste_rango is not None:
+                    pct_proj = round(_clamp_pct(fv if fv > 0 else ultimo_ajuste_rango), 2)
+                proyeccion.append(
+                    {
+                        "mes_clave": mk,
+                        "mes_etiqueta": _etiqueta_mes_ym(mk),
+                        "pct_fatales_proyectado": pct_proj,
+                        "ajuste_pct": pct_proj,
+                    }
+                )
 
     meta: dict[str, Any] = {
         "modelo": modelo,
@@ -417,7 +461,7 @@ def build_proporcion_fatales_payload(
     filtros = filtros or FiltrosKpi()
     mod: ModeloProp = (
         modelo
-        if modelo in ("ols", "logistica", "estacional", "media_movil")
+        if modelo in ("ols", "logistica", "estacional", "media_movil", "arima", "sarima")
         else "estacional"
     )
     ventana = _clamp_ventana_ma(ventana_ma)

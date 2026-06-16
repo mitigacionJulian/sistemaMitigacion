@@ -69,9 +69,17 @@ def _rango_from_args(args: dict[str, Any]) -> tuple[date, date]:
 
 
 def get_rango_fechas(_args: dict[str, Any]) -> dict[str, Any]:
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT MIN(fecha_incidente), MAX(fecha_incidente) FROM incidente")
-        row = cursor.fetchone()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT MIN(fecha_incidente), MAX(fecha_incidente) FROM incidente")
+            row = cursor.fetchone()
+    except Exception:
+        return {
+            "hay_datos": False,
+            "default_desde": "2021-01-01",
+            "default_hasta": "2021-09-30",
+            "nota": "No se pudo leer el rango de fechas desde la base.",
+        }
     if not row or not row[0] or not row[1]:
         return {
             "hay_datos": False,
@@ -145,13 +153,17 @@ def get_matriz_dia_hora(args: dict[str, Any]) -> dict[str, Any]:
     return build_matriz_dia_hora_payload(inicio, fin, _filtros_from_args(args))
 
 
-def _horizonte_meses(args: dict[str, Any], default: int = 6) -> int:
+HORIZONTE_PREDICCION_MAX_MESES = 12
+HORIZONTE_PREDICCION_DEFAULT_MESES = 6
+
+
+def _horizonte_meses(args: dict[str, Any], default: int = HORIZONTE_PREDICCION_DEFAULT_MESES) -> int:
     raw = args.get("horizonte_meses") or args.get("meses") or default
     try:
         v = int(raw)
     except (TypeError, ValueError):
         v = default
-    return max(1, min(12, v))
+    return max(1, min(HORIZONTE_PREDICCION_MAX_MESES, v))
 
 
 def _bool_arg(args: dict[str, Any], key: str, default: bool = True) -> bool:

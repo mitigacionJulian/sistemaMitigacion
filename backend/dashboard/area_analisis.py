@@ -84,12 +84,19 @@ def build_area_resumen(
             round(item["conteo"] / total_incidentes * 100, 1) if total_incidentes > 0 else 0.0
         )
 
+    def _pct_area(conteo: int) -> float:
+        if total_incidentes <= 0:
+            return 0.0
+        return round(conteo / total_incidentes * 100, 1)
+
     top_celdas: list[dict[str, Any]] = []
     for rank, row in enumerate(grid_rows[:5], start=1):
+        conteo = int(row.get("conteo") or 0)
         top_celdas.append(
             {
                 "rank": rank,
-                "conteo": row.get("conteo"),
+                "conteo": conteo,
+                "porcentaje_area": _pct_area(conteo),
                 "densidad_por_km2": row.get("densidad_por_km2"),
                 "area_km2": row.get("area_km2"),
             }

@@ -282,6 +282,9 @@ def _parse_modelo_prediccion(qs) -> str:
         "media_movil": "media_movil",
         "ma": "media_movil",
         "moving_average": "media_movil",
+        "arima": "arima",
+        "sarima": "sarima",
+        "seasonal_arima": "sarima",
     }
     if raw not in aliases:
         raise ValueError("modelo")
@@ -333,7 +336,7 @@ def dashboard_predicciones_mensuales_view(request):
 
     Query:
       horizonte_meses (1–12, default 3);
-      modelo: ols | estacional | poisson | media_movil (default ols);
+      modelo: ols | estacional | poisson | media_movil | arima | sarima (default ols);
       ventana_ma (2–12, default 3; solo media_movil);
       variable: incidentes | victimas | victimas_fatales (default incidentes);
       desglose_clase: 1 para series por clase (solo si no hay clase_incidente_id);
@@ -357,7 +360,7 @@ def dashboard_predicciones_mensuales_view(request):
         return Response(
             {
                 "detail": (
-                    "Parámetros inválidos. modelo: ols|estacional|poisson|media_movil; "
+                    "Parámetros inválidos. modelo: ols|estacional|poisson|media_movil|arima|sarima; "
                     "ventana_ma: 2–12; variable: incidentes|victimas|victimas_fatales."
                 )
             },
@@ -480,6 +483,9 @@ def _parse_modelo_proporcion(qs) -> str:
         "media_movil": "media_movil",
         "ma": "media_movil",
         "moving_average": "media_movil",
+        "arima": "arima",
+        "sarima": "sarima",
+        "seasonal_arima": "sarima",
     }
     if raw not in aliases:
         raise ValueError("modelo")
@@ -501,6 +507,9 @@ def _parse_modelo_carga(qs) -> str:
         "media_movil": "media_movil",
         "ma": "media_movil",
         "moving_average": "media_movil",
+        "arima": "arima",
+        "sarima": "sarima",
+        "seasonal_arima": "sarima",
     }
     if raw not in aliases:
         raise ValueError("modelo")
@@ -513,7 +522,7 @@ def dashboard_proporcion_fatales_mensual_view(request):
     """
     P07 — Proporción mensual de víctimas fatales (% sobre víctimas del mes).
 
-    Query: modelo=ols|logistica|estacional|media_movil (default estacional), horizonte_meses (1–12),
+    Query: modelo=ols|logistica|estacional|media_movil|arima|sarima (default estacional), horizonte_meses (1–12),
     ventana_ma (2–12, solo media_movil), desglose_comuna=1 (top 10 comunas si no hay comuna_id), excluir_covid.
     """
     today = date.today()
@@ -533,7 +542,7 @@ def dashboard_proporcion_fatales_mensual_view(request):
         return Response(
             {
                 "detail": (
-                    "Parámetros inválidos. modelo: ols|logistica|estacional|media_movil; "
+                    "Parámetros inválidos. modelo: ols|logistica|estacional|media_movil|arima|sarima; "
                     "ventana_ma: 2–12; horizonte_meses: 1–12."
                 )
             },
@@ -607,7 +616,7 @@ def dashboard_carga_esperada_territorial_view(request):
             {
                 "detail": (
                     "Parámetros inválidos. nivel: comuna|barrio; "
-                    "modelo: ols|estacional|media_movil; ventana_ma: 2–12; limite: 1–50."
+                    "modelo: ols|estacional|media_movil|arima|sarima; ventana_ma: 2–12; limite: 1–50."
                 )
             },
             status=status.HTTP_400_BAD_REQUEST,
@@ -700,7 +709,7 @@ def dashboard_carga_esperada_espacial_view(request):
             {
                 "detail": (
                     "Parámetros inválidos. tipo: series_territorial|ranking_via|ranking_punto; "
-                    "modelo: ols|estacional|media_movil; ventana_ma: 2–12; limite: 1–15."
+                    "modelo: ols|estacional|media_movil|arima|sarima; ventana_ma: 2–12; limite: 1–15."
                 )
             },
             status=status.HTTP_400_BAD_REQUEST,
@@ -851,7 +860,7 @@ def dashboard_matriz_dia_hora_proyectada_view(request):
             {
                 "detail": (
                     "Parámetros inválidos. horizonte_meses: 1–12; "
-                    "modelo: ols|estacional|media_movil; ventana_ma: 2–12."
+                    "modelo: ols|estacional|media_movil|arima|sarima; ventana_ma: 2–12."
                 )
             },
             status=status.HTTP_400_BAD_REQUEST,
@@ -910,7 +919,7 @@ def dashboard_por_dia_semana_proyectado_view(request):
             {
                 "detail": (
                     "Parámetros inválidos. horizonte_meses: 1–12; "
-                    "modelo: ols|estacional|media_movil; ventana_ma: 2–12."
+                    "modelo: ols|estacional|media_movil|arima|sarima; ventana_ma: 2–12."
                 )
             },
             status=status.HTTP_400_BAD_REQUEST,

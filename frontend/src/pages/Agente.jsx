@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchAgentChat, fetchAgentInfo } from '../api/agentClient.js'
 import {
   appendHistoryEntry,
+  clearAgentHistory,
+  countAgentHistory,
+  downloadAgentHistoryReport,
   findCachedAnswer,
   loadAgentHistory,
 } from '../agent/agentHistoryCache.js'
@@ -28,6 +31,20 @@ function formatModelLabel(modelUsed, fallback) {
   return modelUsed
 }
 
+function formatFechaIso(iso) {
+  if (!iso) return '—'
+  try {
+    const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
+    return new Date(y, m - 1, d).toLocaleDateString('es-CO', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    })
+  } catch {
+    return iso
+  }
+}
+
 export function Agente() {
   const { isAnalista } = useAuth()
   const [info, setInfo] = useState(null)
@@ -38,10 +55,15 @@ export function Agente() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [quota, setQuota] = useState(null)
+  const [historyCount, setHistoryCount] = useState(0)
   const listRef = useRef(null)
 
   const predictionsEnabled = Boolean(info?.predictions_enabled ?? isAnalista)
   const suggestions = predictionsEnabled ? SUGGESTIONS_ANALYST : SUGGESTIONS_PUBLIC
+
+  const refreshHistoryCount = useCallback(() => {
+    setHistoryCount(countAgentHistory({ analyst: predictionsEnabled }))
+  }, [predictionsEnabled])
 
   useEffect(() => {
     let cancelled = false
@@ -59,6 +81,7 @@ export function Agente() {
 
   useEffect(() => {
     const history = loadAgentHistory({ analyst: predictionsEnabled })
+    refreshHistoryCount()
     if (history.length === 0) return
     const restored = []
     for (let i = history.length - 1; i >= 0; i -= 1) {
@@ -75,7 +98,7 @@ export function Agente() {
       })
     }
     setMessages(restored.slice(-12))
-  }, [predictionsEnabled])
+  }, [predictionsEnabled, refreshHistoryCount])
 
   useEffect(() => {
     if (listRef.current) {
@@ -139,6 +162,7 @@ export function Agente() {
           analyst: predictionsEnabled,
           meta: { fallbackUsed: result.fallback_used },
         })
+        refreshHistoryCount()
       } catch (err) {
         setError(err.message)
         setMessages((prev) => prev.slice(0, -1))
@@ -147,7 +171,7 @@ export function Agente() {
         setLoading(false)
       }
     },
-    [loading, messages, model, predictionsEnabled],
+    [loading, messages, model, predictionsEnabled, refreshHistoryCount],
   )
 
   const handleSubmit = (e) => {
@@ -155,7 +179,40 @@ export function Agente() {
     void sendMessage(input)
   }
 
+  const handleClearCache = useCallback(() => {
+    const modo = predictionsEnabled ? 'analista' : 'público'
+    const ok = window.confirm(
+      `¿Borrar el historial en caché local (modo ${modo})?\n\n` +
+        'Se eliminarán las preguntas guardadas en este navegador y se vaciará la conversación visible. ' +
+        'Las respuestas idénticas pueden seguir en caché del servidor hasta que expire.',
+    )
+    if (!ok) return
+    clearAgentHistory({ analyst: predictionsEnabled })
+    setMessages([])
+    refreshHistoryCount()
+    setError('')
+  }, [predictionsEnabled, refreshHistoryCount])
+
+  const handleExportReport = useCallback(() => {
+    const n = countAgentHistory({ analyst: predictionsEnabled })
+    if (n === 0) {
+      setError('No hay consultas guardadas en caché local para exportar.')
+      return
+    }
+    setError('')
+    downloadAgentHistoryReport({ analyst: predictionsEnabled })
+  }, [predictionsEnabled])
+
   const disclaimer = info?.disclaimer
+  const dataRange = info?.data_range
+  const predicciones = info?.predicciones
+
+  const rangoDatosTexto = useMemo(() => {
+    if (!dataRange?.hay_datos) {
+      return 'Sin registros cargados en la base de incidentes.'
+    }
+    return `desde ${formatFechaIso(dataRange.fecha_minima)} hasta ${formatFechaIso(dataRange.fecha_maxima)}`
+  }, [dataRange])
 
   return (
     <section className="agent-page">
@@ -188,6 +245,20 @@ export function Agente() {
         {disclaimer ? (
           <ul className="agent-notice-list">
             <li>
+              <strong>Datos disponibles:</strong> el sistema consulta incidentes registrados{' '}
+              <strong>{rangoDatosTexto}</strong>. Las preguntas históricas deben referirse a fechas dentro
+              de ese rango.
+            </li>
+            {predictionsEnabled && predicciones && (
+              <li>
+                <strong>Predicciones en el asistente:</strong> puede proyectar hasta{' '}
+                <strong>{predicciones.horizonte_meses_max} meses</strong> hacia el futuro (por defecto{' '}
+                {predicciones.horizonte_meses_default}). Si pregunta por modelos ARIMA/SARIMA, recuerde que
+                requieren al menos {predicciones.historia_minima_arima_meses} o{' '}
+                {predicciones.historia_minima_sarima_meses} meses de historia válida, respectivamente.
+              </li>
+            )}
+            <li>
               <strong>Límite de consultas:</strong> {disclaimer.quota}
             </li>
             <li>
@@ -196,6 +267,13 @@ export function Agente() {
             <li>
               <strong>Alcance:</strong> {disclaimer.scope}
             </li>
+            {info?.cache_enabled && (
+              <li>
+                <strong>Caché de respuestas:</strong> preguntas repetidas pueden devolver la misma respuesta
+                sin consumir cuota (local en el navegador y, si aplica, en el servidor). Use «Borrar historial
+                en caché» para reiniciar la conversación local.
+              </li>
+            )}
           </ul>
         ) : (
           !infoError && <p className="muted">Cargando avisos…</p>
@@ -230,6 +308,34 @@ export function Agente() {
       </div>
 
       <div className="agent-chat panel">
+        <div className="agent-chat-toolbar">
+          <p className="muted small agent-history-summary">
+            {historyCount > 0
+              ? `${historyCount} consulta${historyCount === 1 ? '' : 's'} en caché local`
+              : 'Sin consultas guardadas en caché local'}
+          </p>
+          <div className="agent-history-actions">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={handleExportReport}
+              disabled={historyCount === 0}
+              title="Descargar archivo de texto con preguntas y respuestas guardadas"
+            >
+              Exportar reporte
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={handleClearCache}
+              disabled={historyCount === 0 && messages.length === 0}
+              title="Eliminar historial local y vaciar la conversación visible"
+            >
+              Borrar historial en caché
+            </button>
+          </div>
+        </div>
+
         <div className="agent-messages" ref={listRef} aria-live="polite">
           {messages.length === 0 && (
             <div className="agent-empty">

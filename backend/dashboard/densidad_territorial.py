@@ -35,6 +35,19 @@ def clamp_limite_densidad(raw: int | None) -> int:
     return max(1, min(MAX_LIMITE_DENSIDAD, v))
 
 
+def _filtros_baseline_ciudad(filtros: FiltrosKpi) -> FiltrosKpi:
+    """G02: la densidad media de la ciudad no depende del filtro comuna/barrio activo."""
+    return FiltrosKpi(
+        comuna_id=None,
+        barrio_id=None,
+        clase_incidente_id=filtros.clase_incidente_id,
+        via_id=filtros.via_id,
+        punto_critico_id=filtros.punto_critico_id,
+        modo_territorio=filtros.modo_territorio,
+        punto_critico_modo=filtros.punto_critico_modo,
+    )
+
+
 def _incidentes_where(
     inicio: date,
     fin: date,
@@ -52,6 +65,13 @@ def _incidentes_where(
     append_filtro_bbox(where, params, bbox)
     append_filtro_geojson(where, params, geojson)
     return " AND ".join(where), params
+
+
+def _count_incidentes(wh: str, params: list[Any]) -> int:
+    sql_inc = f"SELECT COUNT(*)::bigint FROM incidente i WHERE {wh}"
+    with connection.cursor() as cursor:
+        cursor.execute(sql_inc, params)
+        return int((cursor.fetchone() or [0])[0] or 0)
 
 
 def _query_densidad_ciudad(
@@ -201,9 +221,13 @@ def build_densidad_territorial_payload(
     filtros = filtros or FiltrosKpi()
     limite = clamp_limite_densidad(limite)
     wh, params = _incidentes_where(inicio, fin, filtros, bbox, geojson)
-    total_incidentes, area_ciudad_km2 = _query_densidad_ciudad(wh, params, nivel)
+    wh_ciudad, params_ciudad = _incidentes_where(
+        inicio, fin, _filtros_baseline_ciudad(filtros), bbox, geojson
+    )
+    total_incidentes = _count_incidentes(wh, params)
+    total_incidentes_ciudad, area_ciudad_km2 = _query_densidad_ciudad(wh_ciudad, params_ciudad, nivel)
     densidad_ciudad = (
-        round(total_incidentes / area_ciudad_km2, 4) if area_ciudad_km2 > 0 else None
+        round(total_incidentes_ciudad / area_ciudad_km2, 4) if area_ciudad_km2 > 0 else None
     )
 
     ranking = _query_ranking_densidad(inicio, fin, filtros, nivel, limite, bbox, geojson)
@@ -235,7 +259,7 @@ def build_densidad_territorial_payload(
             ),
             "descripcion_g02": (
                 "ratio_vs_ciudad = densidad del territorio / densidad promedio de la ciudad "
-                "(total incidentes / suma de áreas con geometría)."
+                "(total incidentes del periodo y filtros no territoriales / suma de áreas con geometría)."
             ),
             "limitaciones": (
                 "Barrios sin polígono cargado quedan fuera. El ratio G02 es relativo al periodo "

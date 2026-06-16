@@ -108,6 +108,9 @@ class HotspotsPayloadTests(TestCase):
         self.assertTrue(payload["meta"]["malla_completa"])
         self.assertIn("area_resumen", payload["meta"])
         self.assertEqual(payload["meta"]["area_resumen"]["total_incidentes"], 12)
+        hot = payload["meta"]["area_resumen"]["celda_mas_caliente"]
+        self.assertEqual(hot["porcentaje_area"], 100.0)
+        self.assertEqual(payload["meta"]["area_resumen"]["top_celdas"][0]["porcentaje_area"], 100.0)
 
     def test_api_hotspots_ok(self):
         fake = {

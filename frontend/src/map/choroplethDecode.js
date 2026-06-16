@@ -10,6 +10,12 @@ function hasValidFeatures(fc) {
 /**
  * Convierte respuesta coroplética (GeoJSON o TopoJSON) a FeatureCollection para Leaflet.
  */
+export function choroplethHasFeatures(data) {
+  if (!data) return false
+  const fc = decodeChoroplethPayload(data)
+  return (fc?.features?.length ?? 0) > 0
+}
+
 export function decodeChoroplethPayload(data) {
   if (!data) return data
   if (data.type !== 'Topology') return data

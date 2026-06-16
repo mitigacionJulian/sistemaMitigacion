@@ -34,7 +34,13 @@ from .gemini import (
 
 )
 
-from .tools import execute_tool, get_tool_declarations
+from .tools import (
+    execute_tool,
+    get_rango_fechas,
+    get_tool_declarations,
+    HORIZONTE_PREDICCION_DEFAULT_MESES,
+    HORIZONTE_PREDICCION_MAX_MESES,
+)
 
 
 
@@ -380,11 +386,21 @@ def agent_info_payload(*, is_analista: bool = False) -> dict[str, Any]:
 
     )
 
-    return {
+    rango = get_rango_fechas({})
+
+    try:
+        from dashboard.modelos_arima import MIN_MESES_ARIMA, MIN_MESES_SARIMA
+    except ImportError:
+        MIN_MESES_ARIMA = 12
+        MIN_MESES_SARIMA = 24
+
+    payload: dict[str, Any] = {
 
         "is_analista": is_analista,
 
         "predictions_enabled": is_analista,
+
+        "data_range": rango,
 
         "models": [
 
@@ -445,5 +461,21 @@ def agent_info_payload(*, is_analista: bool = False) -> dict[str, Any]:
         "daily_limit_per_ip": int(getattr(settings, "AGENT_DAILY_LIMIT_PER_IP", 0)),
 
     }
+
+    if is_analista:
+        payload["predicciones"] = {
+            "horizonte_meses_max": HORIZONTE_PREDICCION_MAX_MESES,
+            "horizonte_meses_default": HORIZONTE_PREDICCION_DEFAULT_MESES,
+            "historia_minima_arima_meses": MIN_MESES_ARIMA,
+            "historia_minima_sarima_meses": MIN_MESES_SARIMA,
+            "nota": (
+                f"Las herramientas de predicción pueden extrapolar hasta "
+                f"{HORIZONTE_PREDICCION_MAX_MESES} meses futuros. "
+                f"ARIMA requiere al menos {MIN_MESES_ARIMA} meses de historia; "
+                f"SARIMA, {MIN_MESES_SARIMA}."
+            ),
+        }
+
+    return payload
 
 
