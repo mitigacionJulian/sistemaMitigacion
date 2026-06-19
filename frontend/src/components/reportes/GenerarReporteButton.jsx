@@ -11,15 +11,23 @@ export function GenerarReporteButton({
   mapaLeyenda = null,
   className = 'btn btn-secondary',
   label = 'Generar reporte',
+  disabled = false,
+  visibleForAll = false,
+  customFetch,
 }) {
   const { user, isAnalista } = useAuth()
   const [open, setOpen] = useState(false)
 
-  if (!user || !isAnalista) return null
+  if (!visibleForAll && (!user || !isAnalista)) return null
 
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        className={className}
+        onClick={() => setOpen(true)}
+        disabled={disabled}
+      >
         {label}
       </button>
       <ReporteModal
@@ -31,6 +39,7 @@ export function GenerarReporteButton({
         query={query}
         captureMapSnapshot={captureMapSnapshot}
         mapaLeyenda={mapaLeyenda}
+        customFetch={customFetch}
       />
     </>
   )

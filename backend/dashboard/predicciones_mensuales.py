@@ -31,6 +31,31 @@ MA_VENTANA_DEFAULT = 3
 MA_VENTANA_MIN = 2
 MA_VENTANA_MAX = 12
 
+HOLDOUT_MESES_DEFAULT = 3
+HOLDOUT_MESES_MIN = 1
+HOLDOUT_MESES_MAX = 6
+
+
+@dataclass(frozen=True)
+class ArimaOpciones:
+    order: tuple[int, int, int] | None = None
+    seasonal_order: tuple[int, int, int, int] | None = None
+
+
+def parse_arima_opciones(qs) -> ArimaOpciones:
+    from .modelos_arima import parse_arima_order, parse_sarima_seasonal
+
+    raw_order = qs.get("arima_order")
+    raw_seasonal = qs.get("sarima_seasonal")
+    order = parse_arima_order(raw_order) if raw_order not in (None, "") else None
+    seasonal = parse_sarima_seasonal(raw_seasonal) if raw_seasonal not in (None, "") else None
+    if raw_order not in (None, "") and order is None:
+        raise ValueError("arima_order")
+    if raw_seasonal not in (None, "") and seasonal is None:
+        raise ValueError("sarima_seasonal")
+    return ArimaOpciones(order=order, seasonal_order=seasonal)
+
+
 MODELOS_PROYECCION_CARGA = frozenset({"ols", "estacional", "media_movil", "arima", "sarima"})
 
 
@@ -206,33 +231,31 @@ def _mape_pct(ys: list[float], yhat: list[float]) -> float | None:
 
 
 def _interpretacion_bondad(r2: float, mape: float | None) -> dict[str, str]:
-    """Texto corto para sustentación según umbrales de R² (series mensuales de conteo)."""
+    """Texto corto según umbrales de R² (series mensuales de conteo)."""
     if r2 >= 0.55:
         nivel = "bueno"
         texto = (
-            "Ajuste bueno para un tablero exploratorio: el modelo reproduce de forma consistente "
-            "la serie histórica en el periodo y filtros elegidos."
+            "Buen ajuste: el modelo sigue de forma consistente la serie en el periodo y filtros elegidos."
         )
     elif r2 >= 0.35:
         nivel = "moderado"
         texto = (
-            "Ajuste moderado (habitual con estacionalidad y meses atípicos): sirve para tendencia, "
-            "comparar escenarios y orden de magnitud; no para cifras exactas mes a mes."
+            "Ajuste moderado: sirve para ver tendencia y orden de magnitud, no para cifras exactas mes a mes."
         )
     else:
         nivel = "bajo"
         texto = (
-            "Ajuste bajo: conviene modelo estacional, excluir meses COVID del ajuste, ampliar fechas "
-            "o revisar filtros antes de usar la proyección con confianza."
+            "Ajuste bajo en el historial: pruebe estacional, media móvil o active «Excluir mar–ago 2020». "
+            "Revise también la prueba con meses reservados (puede ser mejor que el R² sugiere)."
         )
 
     if mape is not None:
         if mape <= 12:
-            texto += f" Error relativo medio (MAPE) aceptable: {mape:g}%."
+            texto += f" Error medio aceptable: {mape:g} %."
         elif mape <= 20:
-            texto += f" MAPE moderado: {mape:g}%."
+            texto += f" Error medio moderado: {mape:g} %."
         else:
-            texto += f" MAPE elevado ({mape:g}%): la serie es difícil de resumir con este modelo simple."
+            texto += f" Error medio elevado ({mape:g} %): esta serie es difícil de resumir con este modelo."
 
     return {"bondad_nivel": nivel, "interpretacion_bondad": texto}
 
@@ -400,6 +423,24 @@ def _clamp_ventana_ma(ventana: int) -> int:
     return max(MA_VENTANA_MIN, min(MA_VENTANA_MAX, int(ventana)))
 
 
+def _fit_estacional_vals(
+    meses: list[str],
+    valores: list[float],
+) -> tuple[list[float], list[float], dict[str, Any]]:
+    """Estacional sobre valores en escala real (p. ej. % 0–100 con decimales)."""
+    serie = _SerieMensual(meses=meses, valores=valores)  # type: ignore[arg-type]
+    return _fit_estacional(serie)
+
+
+def _fit_media_movil_vals(
+    meses: list[str],
+    valores: list[float],
+    ventana: int,
+) -> tuple[list[float], list[float], dict[str, Any]]:
+    serie = _SerieMensual(meses=meses, valores=valores)  # type: ignore[arg-type]
+    return _fit_media_movil(serie, ventana)
+
+
 def _fit_media_movil(
     serie: _SerieMensual,
     ventana: int,
@@ -524,6 +565,197 @@ def _forecast_values(
     return fore
 
 
+def _clamp_holdout_meses(holdout: int) -> int:
+    return max(HOLDOUT_MESES_MIN, min(HOLDOUT_MESES_MAX, int(holdout)))
+
+
+def _forecast_from_train(
+    meses_train: list[str],
+    valores_train: list[float],
+    modelo: ModeloPred,
+    horizonte: int,
+    ventana_ma: int,
+    arima_opciones: ArimaOpciones | None = None,
+) -> list[float] | None:
+    """Ajusta solo con entrenamiento y proyecta `horizonte` meses hacia adelante."""
+    n = len(meses_train)
+    if n < 1 or horizonte < 1:
+        return None
+    serie = _SerieMensual(meses=meses_train, valores=[int(v) for v in valores_train])
+    ys = [float(v) for v in valores_train]
+    ventana = _clamp_ventana_ma(ventana_ma)
+    hm = max(1, int(horizonte))
+
+    if modelo == "ols":
+        xs = [float(i) for i in range(n)]
+        a, b = _ols_intercept_slope(xs, ys)
+        beta = [a, b]
+        yhat_hist = [max(0.0, a + b * xi) for xi in xs]
+        return _forecast_values("ols", serie, beta, hm, yhat_hist)
+    if modelo == "estacional":
+        yhat, beta, _ = _fit_estacional(serie)
+        return _forecast_values("estacional", serie, beta, hm, yhat)
+    if modelo == "media_movil":
+        yhat, beta, _ = _fit_media_movil(serie, ventana)
+        return _forecast_values("media_movil", serie, beta, hm, yhat)
+    if modelo in ("arima", "sarima"):
+        from .modelos_arima import ajustar_y_proyectar_arima
+
+        opts = arima_opciones or ArimaOpciones()
+        res = ajustar_y_proyectar_arima(
+            ys,
+            hm,
+            seasonal=(modelo == "sarima"),
+            order=opts.order,
+            seasonal_order=opts.seasonal_order,
+        )
+        if res is None:
+            return None
+        _, fore, _ = res
+        return fore
+    yhat, beta, coef = _fit_poisson(serie)
+    modelo_forecast: ModeloPred = modelo
+    if coef.get("fallback_estacional"):
+        modelo_forecast = "estacional"
+    return _forecast_values(modelo_forecast, serie, beta, hm, yhat)
+
+
+def _interpretacion_holdout(
+    mape: float | None,
+    mape_in_sample: float | None,
+) -> str:
+    if mape is None:
+        return (
+            "Se entrenó sin los últimos meses reservados y se comparó la predicción con lo observado."
+        )
+    precision = max(0.0, min(100.0, 100.0 - mape))
+    texto = (
+        f"En la prueba, el error medio fue de {mape:g} % "
+        f"(precisión estimada ≈ {precision:g} %)."
+    )
+    if precision >= 80:
+        texto += " Resultado aceptable para usar este modelo como referencia."
+    elif precision >= 70:
+        texto += " Precisión moderada: conviene comparar con otro modelo o ampliar fechas."
+    else:
+        texto += " Precisión baja: no es el modelo más adecuado con estos filtros."
+    if mape_in_sample is not None:
+        diff = mape - mape_in_sample
+        if diff > 5:
+            texto += (
+                f" El error en la prueba supera el del ajuste al historial ({mape_in_sample:g} %): "
+                "el modelo puede estar ajustándose demasiado al pasado."
+            )
+        elif diff <= 2:
+            texto += (
+                f" Coherente con el ajuste al historial ({mape_in_sample:g} %)."
+            )
+        else:
+            texto += (
+                f" Ajuste al historial: MAPE {mape_in_sample:g} %."
+            )
+    return texto
+
+
+def _evaluar_holdout(
+    meses_fit: list[str],
+    valores_fit: list[int],
+    modelo: ModeloPred,
+    holdout_meses: int,
+    ventana_ma: int,
+    mape_in_sample: float | None = None,
+    arima_opciones: ArimaOpciones | None = None,
+) -> dict[str, Any]:
+    """
+    Reserva los últimos h meses del ajuste como prueba:
+    entrena con el resto y compara predicción vs observado.
+    """
+    h = _clamp_holdout_meses(holdout_meses)
+    n = len(meses_fit)
+    min_train = _min_meses_modelo(modelo, ventana_ma)
+    min_total = min_train + h
+
+    if n < min_total:
+        return {
+            "activo": False,
+            "holdout_meses": h,
+            "motivo": (
+                f"Se requieren al menos {min_total} meses de ajuste para reservar {h} meses de prueba "
+                f"(mínimo del modelo: {min_train})."
+            ),
+        }
+
+    if modelo == "poisson" and sum(valores_fit[:-h]) == 0:
+        return {
+            "activo": False,
+            "holdout_meses": h,
+            "motivo": "Poisson requiere conteos positivos en el tramo de entrenamiento.",
+        }
+
+    train_meses = meses_fit[:-h]
+    train_vals = [float(v) for v in valores_fit[:-h]]
+    test_meses = meses_fit[-h:]
+    test_vals = [float(v) for v in valores_fit[-h:]]
+
+    fore = _forecast_from_train(
+        train_meses, train_vals, modelo, h, ventana_ma, arima_opciones=arima_opciones
+    )
+    if fore is None or len(fore) != h:
+        return {
+            "activo": False,
+            "holdout_meses": h,
+            "motivo": "No se pudo ajustar o proyectar con el tramo de entrenamiento reservado.",
+        }
+
+    metricas = _metricas_ajuste(test_vals, fore, 2)
+    filas: list[dict[str, Any]] = []
+    for i, mk in enumerate(test_meses):
+        obs = test_vals[i]
+        pred = fore[i]
+        err_pct = round(100.0 * abs(obs - pred) / obs, 2) if obs > 0 else None
+        filas.append(
+            {
+                "mes_clave": mk,
+                "mes_etiqueta": _etiqueta_mes_ym(mk),
+                "observados": int(obs),
+                "predichos": pred,
+                "error_abs": round(abs(obs - pred), 2),
+                "error_pct": err_pct,
+            }
+        )
+
+    mape_hold = metricas.get("mape_pct")
+    precision_est = (
+        round(max(0.0, min(100.0, 100.0 - float(mape_hold))), 2)
+        if mape_hold is not None
+        else None
+    )
+    cumple_umbral_80 = precision_est is not None and precision_est >= 80.0
+    return {
+        "activo": True,
+        "holdout_meses": h,
+        "n_meses_entrenamiento": len(train_meses),
+        "ultimo_mes_entrenamiento": train_meses[-1],
+        "primer_mes_prueba": test_meses[0],
+        "ultimo_mes_prueba": test_meses[-1],
+        "meses_prueba": filas,
+        "r2": metricas["r2"],
+        "rmse": metricas["rmse"],
+        "mape_pct": mape_hold,
+        "precision_estimada_pct": precision_est,
+        "cumple_umbral_80": cumple_umbral_80,
+        "bondad_nivel": metricas.get("bondad_nivel"),
+        "interpretacion_holdout": _interpretacion_holdout(
+            float(mape_hold) if mape_hold is not None else None,
+            mape_in_sample,
+        ),
+        "metodo": (
+            f"Se entrenó con {len(train_meses)} meses (hasta {_etiqueta_mes_ym(train_meses[-1])}) "
+            f"y se comparó la predicción con los últimos {h} meses, que no se usaron al entrenar."
+        ),
+    }
+
+
 def _row_historica(mk: str, obs: int, ajuste: float | None, variable: VariablePred) -> dict[str, Any]:
     row: dict[str, Any] = {
         "mes_clave": mk,
@@ -571,12 +803,12 @@ def _metodo_texto(modelo: ModeloPred) -> str:
     if modelo == "arima":
         return (
             "ARIMA sobre la serie mensual: modelo autorregresivo integrado de media móvil "
-            "(por defecto orden (1,1,1)) estimado por máxima verosimilitud."
+            "(por defecto orden (2,1,3)) estimado por máxima verosimilitud."
         )
     if modelo == "sarima":
         return (
             "SARIMA sobre la serie mensual: ARIMA con componente estacional de periodo 12 meses "
-            "(por defecto (1,1,1)(1,1,1,12)); adecuado cuando hay patrón intra-anual repetible."
+            "(por defecto (2,1,3)(1,1,1,12)); adecuado cuando hay patrón intra-anual repetible."
         )
     return (
         "Modelo de Poisson log-lineal (GLM): tendencia + estacionalidad por mes; "
@@ -643,6 +875,9 @@ def _build_single(
     variable: VariablePred,
     excluir_covid: bool = False,
     ventana_ma: int = MA_VENTANA_DEFAULT,
+    holdout_meses: int = HOLDOUT_MESES_DEFAULT,
+    evaluar_holdout: bool = True,
+    arima_opciones: ArimaOpciones | None = None,
 ) -> dict[str, Any]:
     hm = max(1, min(12, int(horizonte_meses)))
     ventana = _clamp_ventana_ma(ventana_ma)
@@ -691,10 +926,13 @@ def _build_single(
         elif modelo in ("arima", "sarima"):
             from .modelos_arima import ajustar_y_proyectar_arima
 
+            opts = arima_opciones or ArimaOpciones()
             arima_res = ajustar_y_proyectar_arima(
                 ys_fit,
                 hm,
                 seasonal=(modelo == "sarima"),
+                order=opts.order,
+                seasonal_order=opts.seasonal_order,
             )
             if arima_res is None:
                 sin_modelo = True
@@ -753,9 +991,50 @@ def _build_single(
         }
     if modelo == "media_movil":
         meta["ventana_meses"] = ventana
+    if modelo in ("arima", "sarima"):
+        opts = arima_opciones or ArimaOpciones()
+        from .modelos_arima import ARIMA_ORDER_DEFAULT, SARIMA_SEASONAL_DEFAULT
+
+        meta["arima_order"] = list(opts.order or ARIMA_ORDER_DEFAULT)
+        if modelo == "sarima":
+            meta["sarima_seasonal"] = list(opts.seasonal_order or SARIMA_SEASONAL_DEFAULT)
     if coeficientes:
         meta["interpretacion_bondad"] = coeficientes.get("interpretacion_bondad")
         meta["bondad_nivel"] = coeficientes.get("bondad_nivel")
+
+    if evaluar_holdout and not sin_modelo:
+        mape_in = coeficientes.get("mape_pct") if coeficientes else None
+        meta["holdout"] = _evaluar_holdout(
+            meses_fit,
+            valores_fit,
+            modelo,
+            holdout_meses,
+            ventana,
+            mape_in_sample=float(mape_in) if mape_in is not None else None,
+            arima_opciones=arima_opciones,
+        )
+        hold = meta["holdout"]
+        if (
+            hold.get("activo")
+            and coeficientes
+            and coeficientes.get("r2") is not None
+            and float(coeficientes["r2"]) < 0.35
+            and hold.get("mape_pct") is not None
+            and float(hold["mape_pct"]) <= 20
+        ):
+            extra = (
+                f" La prueba con meses reservados es aceptable (MAPE {float(hold['mape_pct']):g} %), "
+                "aunque el R² del ajuste sea bajo."
+            )
+            texto_b = coeficientes.get("interpretacion_bondad") or ""
+            coeficientes["interpretacion_bondad"] = texto_b + extra
+            meta["interpretacion_bondad"] = coeficientes["interpretacion_bondad"]
+    elif evaluar_holdout:
+        meta["holdout"] = {
+            "activo": False,
+            "holdout_meses": _clamp_holdout_meses(holdout_meses),
+            "motivo": "No hay modelo ajustado para validación hold-out.",
+        }
 
     return {
         "meta": meta,
@@ -774,6 +1053,9 @@ def build_predicciones_mensuales_payload(
     desglose_clase: bool = False,
     excluir_covid: bool = False,
     ventana_ma: int = MA_VENTANA_DEFAULT,
+    holdout_meses: int = HOLDOUT_MESES_DEFAULT,
+    evaluar_holdout: bool = True,
+    arima_opciones: ArimaOpciones | None = None,
 ) -> dict[str, Any]:
     filtros = filtros or FiltrosKpi()
     mod: ModeloPred = (
@@ -782,6 +1064,7 @@ def build_predicciones_mensuales_payload(
         else "ols"
     )
     ventana = _clamp_ventana_ma(ventana_ma)
+    holdout = _clamp_holdout_meses(holdout_meses)
     var: VariablePred = (
         variable
         if variable in ("incidentes", "victimas", "victimas_fatales")
@@ -807,6 +1090,9 @@ def build_predicciones_mensuales_payload(
                 var,
                 excluir_covid=excluir_covid,
                 ventana_ma=ventana,
+                holdout_meses=holdout,
+                evaluar_holdout=evaluar_holdout,
+                arima_opciones=arima_opciones,
             )
             series_por_clase.append(
                 {
@@ -846,6 +1132,9 @@ def build_predicciones_mensuales_payload(
         var,
         excluir_covid=excluir_covid,
         ventana_ma=ventana,
+        holdout_meses=holdout,
+        evaluar_holdout=evaluar_holdout,
+        arima_opciones=arima_opciones,
     )
     bloque["meta"]["desglose_clase"] = False
     return bloque

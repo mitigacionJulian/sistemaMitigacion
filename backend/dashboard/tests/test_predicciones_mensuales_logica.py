@@ -193,3 +193,52 @@ def test_desglose_clase():
     assert p["meta"]["desglose_clase"] is True
     assert len(p["series_por_clase"]) == 2
     assert p["serie_historica"] == []
+
+
+def test_holdout_ols_linea_perfecta():
+    act = {f"2021-{(i + 1):02d}": 10 + 2 * i for i in range(6)}
+    with patch("dashboard.predicciones_mensuales._query_mensual_valores", return_value=act):
+        p = build_predicciones_mensuales_payload(
+            date(2021, 1, 1),
+            date(2021, 6, 30),
+            FiltrosKpi(),
+            2,
+            modelo="ols",
+            holdout_meses=2,
+        )
+    h = p["meta"]["holdout"]
+    assert h["activo"] is True
+    assert h["holdout_meses"] == 2
+    assert h["r2"] == 1.0
+    assert len(h["meses_prueba"]) == 2
+    assert h["meses_prueba"][0]["predichos"] == h["meses_prueba"][0]["observados"]
+
+
+def test_holdout_insuficiente_meses():
+    act = {"2021-01": 10, "2021-02": 12}
+    with patch("dashboard.predicciones_mensuales._query_mensual_valores", return_value=act):
+        p = build_predicciones_mensuales_payload(
+            date(2021, 1, 1),
+            date(2021, 2, 28),
+            FiltrosKpi(),
+            1,
+            modelo="estacional",
+            holdout_meses=3,
+        )
+    h = p["meta"]["holdout"]
+    assert h["activo"] is False
+    assert "motivo" in h
+
+
+def test_holdout_desactivado():
+    act = {"2021-01": 10, "2021-02": 12, "2021-03": 14}
+    with patch("dashboard.predicciones_mensuales._query_mensual_valores", return_value=act):
+        p = build_predicciones_mensuales_payload(
+            date(2021, 1, 1),
+            date(2021, 3, 31),
+            FiltrosKpi(),
+            1,
+            modelo="ols",
+            evaluar_holdout=False,
+        )
+    assert "holdout" not in p["meta"]

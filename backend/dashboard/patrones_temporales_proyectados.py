@@ -21,6 +21,7 @@ from .por_dia_semana import (
 )
 from .predicciones_mensuales import (
     MA_VENTANA_DEFAULT,
+    ArimaOpciones,
     _build_single,
     normalize_modelo_proyeccion,
 )
@@ -39,6 +40,7 @@ def _total_proyectado_horizonte(
     modelo: ModeloPatron,
     excluir_covid: bool,
     ventana_ma: int = MA_VENTANA_DEFAULT,
+    arima_opciones: ArimaOpciones | None = None,
 ) -> tuple[float | None, dict[str, Any]]:
     bloque = _build_single(
         inicio,
@@ -49,6 +51,7 @@ def _total_proyectado_horizonte(
         "incidentes",
         excluir_covid=excluir_covid,
         ventana_ma=ventana_ma,
+        arima_opciones=arima_opciones,
     )
     meta = bloque.get("meta") or {}
     if meta.get("sin_modelo"):
@@ -107,6 +110,7 @@ def build_matriz_dia_hora_proyectada_payload(
     modelo: str = "estacional",
     excluir_covid: bool = True,
     ventana_ma: int = MA_VENTANA_DEFAULT,
+    arima_opciones: ArimaOpciones | None = None,
 ) -> dict[str, Any]:
     filtros = filtros or FiltrosKpi()
     hm = max(1, min(12, int(horizonte_meses)))
@@ -115,7 +119,7 @@ def build_matriz_dia_hora_proyectada_payload(
     actual = _query_heatmap(inicio, fin, filtros)
     total_hist = sum(actual.values())
     total_hor, meta_pred = _total_proyectado_horizonte(
-        inicio, fin, filtros, hm, mod, excluir_covid, ventana_ma
+        inicio, fin, filtros, hm, mod, excluir_covid, ventana_ma, arima_opciones
     )
 
     sin_datos = total_hist == 0 or total_hor is None
@@ -252,6 +256,7 @@ def build_dia_semana_proyectado_payload(
     modelo: str = "estacional",
     excluir_covid: bool = True,
     ventana_ma: int = MA_VENTANA_DEFAULT,
+    arima_opciones: ArimaOpciones | None = None,
 ) -> dict[str, Any]:
     filtros = filtros or FiltrosKpi()
     hm = max(1, min(12, int(horizonte_meses)))
@@ -260,7 +265,7 @@ def build_dia_semana_proyectado_payload(
     act = _query_por_dia(inicio, fin, filtros)
     total_hist = sum(act.get(d, (0, 0))[0] for d in range(7))
     total_hor, meta_pred = _total_proyectado_horizonte(
-        inicio, fin, filtros, hm, mod, excluir_covid, ventana_ma
+        inicio, fin, filtros, hm, mod, excluir_covid, ventana_ma, arima_opciones
     )
 
     sin_datos = total_hist == 0 or total_hor is None

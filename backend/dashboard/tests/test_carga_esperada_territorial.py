@@ -19,7 +19,14 @@ def test_carga_terciles():
 
     def fake_carga(*_a, **_k):
         tid = _a[4]
-        return {1: 30.0, 2: 15.0, 3: 5.0}[tid]
+        cargas = {1: 30.0, 2: 15.0, 3: 5.0}
+        return {
+            "carga": cargas[tid],
+            "r2": 0.5,
+            "mape_pct": 12.0,
+            "mape_holdout_pct": 15.0,
+            "holdout_activo": True,
+        }
 
     with patch(
         "dashboard.carga_esperada_territorial._query_totales_territorio",
@@ -40,9 +47,11 @@ def test_carga_terciles():
     assert not p["meta"]["sin_datos"]
     assert p["meta"].get("interpretacion")
     assert p["meta"].get("que_mide")
+    assert p["meta"].get("bondad_agregada")
     assert len(p["ranking"]) == 3
     assert p["ranking"][0]["categoria_esperada"] == "alto"
     assert p["ranking"][0]["comuna_id"] == 1
+    assert p["ranking"][0]["rank_frecuencia"] == 1
 
 
 @pytest.mark.django_db

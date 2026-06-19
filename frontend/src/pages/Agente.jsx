@@ -5,11 +5,12 @@ import {
   appendHistoryEntry,
   clearAgentHistory,
   countAgentHistory,
-  downloadAgentHistoryReport,
   findCachedAnswer,
   loadAgentHistory,
 } from '../agent/agentHistoryCache.js'
 import { useAuth } from '../context/AuthContext.jsx'
+import { buildAsistenteReporte } from '../components/reportes/buildAsistenteReporte.js'
+import { GenerarReporteButton } from '../components/reportes/GenerarReporteButton.jsx'
 
 const SUGGESTIONS_PUBLIC = [
   '¿Cuántos incidentes hubo el último año con datos?',
@@ -46,7 +47,7 @@ function formatFechaIso(iso) {
 }
 
 export function Agente() {
-  const { isAnalista } = useAuth()
+  const { user, isAnalista } = useAuth()
   const [info, setInfo] = useState(null)
   const [infoError, setInfoError] = useState('')
   const [model, setModel] = useState('flash')
@@ -193,15 +194,31 @@ export function Agente() {
     setError('')
   }, [predictionsEnabled, refreshHistoryCount])
 
-  const handleExportReport = useCallback(() => {
-    const n = countAgentHistory({ analyst: predictionsEnabled })
-    if (n === 0) {
-      setError('No hay consultas guardadas en caché local para exportar.')
-      return
-    }
-    setError('')
-    downloadAgentHistoryReport({ analyst: predictionsEnabled })
-  }, [predictionsEnabled])
+  const filtrosReporteAsistente = useMemo(
+    () => ({
+      modo: predictionsEnabled ? 'Analista (histórico + predicciones)' : 'Público (solo histórico)',
+      consultas_incluidas: historyCount,
+    }),
+    [predictionsEnabled, historyCount],
+  )
+
+  const fetchReporteAsistente = useCallback(
+    async ({ titulo, notas, filtros }) => {
+      const entries = loadAgentHistory({ analyst: predictionsEnabled })
+      if (entries.length === 0) {
+        throw new Error('No hay consultas guardadas en caché local para generar el reporte.')
+      }
+      return buildAsistenteReporte({
+        titulo,
+        notas,
+        filtros,
+        entries,
+        user,
+        isAnalista: predictionsEnabled,
+      })
+    },
+    [predictionsEnabled, user],
+  )
 
   const disclaimer = info?.disclaimer
   const dataRange = info?.data_range
@@ -315,15 +332,15 @@ export function Agente() {
               : 'Sin consultas guardadas en caché local'}
           </p>
           <div className="agent-history-actions">
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={handleExportReport}
+            <GenerarReporteButton
+              visibleForAll
+              seccion="asistente"
+              seccionEtiqueta="Asistente de accidentalidad"
+              filtros={filtrosReporteAsistente}
               disabled={historyCount === 0}
-              title="Descargar archivo de texto con preguntas y respuestas guardadas"
-            >
-              Exportar reporte
-            </button>
+              className="btn btn-ghost"
+              customFetch={fetchReporteAsistente}
+            />
             <button
               type="button"
               className="btn btn-ghost"

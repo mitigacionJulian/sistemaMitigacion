@@ -1,12 +1,43 @@
+import { useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ReportePreviewContent } from '../components/reportes/ReportePreviewContent.jsx'
+
+function usaMargenesPaginaImpresion() {
+  return /Chrome|Edg\//.test(navigator.userAgent)
+}
 
 export function ReportePreview() {
   const location = useLocation()
   const navigate = useNavigate()
   const reporte = location.state?.reporte
 
+  useEffect(() => {
+    if (!reporte) return undefined
+
+    const activarMargenes = () => {
+      if (usaMargenesPaginaImpresion()) {
+        document.documentElement.classList.add('reporte-print-margin-boxes')
+      }
+    }
+    const desactivarMargenes = () => {
+      document.documentElement.classList.remove('reporte-print-margin-boxes')
+    }
+
+    window.addEventListener('beforeprint', activarMargenes)
+    window.addEventListener('afterprint', desactivarMargenes)
+    return () => {
+      window.removeEventListener('beforeprint', activarMargenes)
+      window.removeEventListener('afterprint', desactivarMargenes)
+      desactivarMargenes()
+    }
+  }, [reporte])
+
   const handlePrint = () => {
+    if (usaMargenesPaginaImpresion()) {
+      document.documentElement.classList.add('reporte-print-margin-boxes')
+    }
+    const limpiar = () => document.documentElement.classList.remove('reporte-print-margin-boxes')
+    window.addEventListener('afterprint', limpiar, { once: true })
     window.print()
   }
 
@@ -16,7 +47,7 @@ export function ReportePreview() {
         <section className="panel">
           <h1>Vista previa del reporte</h1>
           <p className="muted">
-            No hay un reporte en memoria. Genere uno desde el tablero u otra sección con el botón{' '}
+            No hay un reporte en memoria. Genere uno desde el tablero, mapa, predicciones o asistente con el botón{' '}
             <strong>Generar reporte</strong>.
           </p>
           <p>

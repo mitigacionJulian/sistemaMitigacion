@@ -214,15 +214,22 @@ export function ReportePredicciones({ cuerpo }) {
           title="Prioridad territorial (índice compuesto)"
           hint={prioridad.meta?.formula || prioridad.meta?.limitaciones}
         >
+          {prioridad.meta?.alerta_liderazgo?.mensaje ? (
+            <p className="warn small">{prioridad.meta.alerta_liderazgo.mensaje}</p>
+          ) : null}
+          {prioridad.meta?.nota_tablero_vs_p05 ? (
+            <p className="muted small">{prioridad.meta.nota_tablero_vs_p05}</p>
+          ) : null}
           <PrioridadTerritorialChart prioridad={prioridad} nivel={nivelPrioridad} />
           <h3 className="reporte-tops-title">Detalle del ranking territorial</h3>
           <p className="muted small reporte-section-hint">
-            Mismas columnas que en la pantalla de Predicciones: índice compuesto, nivel relativo, volumen del periodo,
-            gravedad (% fatales), tendencia mensual y participación en el total filtrado.
+            Índice compuesto con densidad/km²; columna «# vol.» = puesto solo por incidentes. Scores de
+            componentes normalizados 0–100.
           </p>
           <ReporteTable
             columns={[
               { key: 'rank', label: '#' },
+              { key: 'rank_frec', label: '# vol.', render: (r) => r.rank_frecuencia ?? '—' },
               {
                 key: 'territorio',
                 label: nivelPrioridad === 'barrio' ? 'Barrio' : 'Comuna',
@@ -242,19 +249,30 @@ export function ReportePredicciones({ cuerpo }) {
                 render: (r) => formatReporteNumero(r.incidentes_periodo),
               },
               {
+                key: 'dens',
+                label: 'Dens./km²',
+                className: 'num',
+                render: (r) =>
+                  r.densidad_incidentes_km2 != null
+                    ? formatReporteNumero(r.densidad_incidentes_km2, { maximumFractionDigits: 2 })
+                    : '—',
+              },
+              {
                 key: 'pct',
                 label: '% fatales',
                 className: 'num',
                 render: (r) => `${formatReporteNumero(r.pct_victimas_fatales)}%`,
               },
               {
-                key: 'pend',
-                label: 'Pendiente/mes',
+                key: 'delta',
+                label: 'Delta prom.',
                 className: 'num',
-                render: (r) =>
-                  r.pendiente_mensual_incidentes != null
-                    ? formatReporteNumero(r.pendiente_mensual_incidentes, { maximumFractionDigits: 2 })
-                    : '—',
+                render: (r) => {
+                  const v = r.delta_promedio_incidentes ?? r.pendiente_mensual_incidentes
+                  return v != null
+                    ? formatReporteNumero(v, { maximumFractionDigits: 2 })
+                    : '—'
+                },
               },
               {
                 key: 'part',
@@ -265,6 +283,43 @@ export function ReportePredicciones({ cuerpo }) {
             ]}
             rows={prioridad.ranking}
           />
+        </ReporteSection>
+      )}
+
+      {carga?.ranking?.length > 0 && (
+        <ReporteSection
+          title="Carga esperada territorial"
+          hint={carga.meta?.interpretacion || carga.meta?.limitaciones}
+        >
+          <CargaEsperadaChart carga={carga} nivel={nivelCarga} />
+          <details className="reporte-tabla-detalle">
+            <summary className="muted small">Ver tabla de datos</summary>
+            <ReporteTable
+              columns={[
+                { key: 'rank', label: '#' },
+                {
+                  key: 'territorio',
+                  label: nivelCarga === 'barrio' ? 'Barrio' : 'Comuna',
+                  render: (r) => territorioNombre(r, nivelCarga),
+                },
+                {
+                  key: 'carga',
+                  label: 'Carga proyectada',
+                  className: 'num',
+                  render: (r) =>
+                    formatReporteNumero(r.carga_proyectada_horizonte, { maximumFractionDigits: 1 }),
+                },
+                { key: 'cat', label: 'Categoría', render: (r) => r.categoria_esperada ?? '—' },
+                {
+                  key: 'inc',
+                  label: 'Incidentes periodo',
+                  className: 'num',
+                  render: (r) => formatReporteNumero(r.incidentes_periodo),
+                },
+              ]}
+              rows={carga.ranking}
+            />
+          </details>
         </ReporteSection>
       )}
 
@@ -310,43 +365,6 @@ export function ReportePredicciones({ cuerpo }) {
             ]}
             rows={proporcion.tabla_mensual}
           />
-          </details>
-        </ReporteSection>
-      )}
-
-      {carga?.ranking?.length > 0 && (
-        <ReporteSection
-          title="Carga esperada territorial"
-          hint={carga.meta?.interpretacion || carga.meta?.limitaciones}
-        >
-          <CargaEsperadaChart carga={carga} nivel={nivelCarga} />
-          <details className="reporte-tabla-detalle">
-            <summary className="muted small">Ver tabla de datos</summary>
-            <ReporteTable
-              columns={[
-                { key: 'rank', label: '#' },
-                {
-                  key: 'territorio',
-                  label: nivelCarga === 'barrio' ? 'Barrio' : 'Comuna',
-                  render: (r) => territorioNombre(r, nivelCarga),
-                },
-                {
-                  key: 'carga',
-                  label: 'Carga proyectada',
-                  className: 'num',
-                  render: (r) =>
-                    formatReporteNumero(r.carga_proyectada_horizonte, { maximumFractionDigits: 1 }),
-                },
-                { key: 'cat', label: 'Categoría', render: (r) => r.categoria_esperada ?? '—' },
-                {
-                  key: 'inc',
-                  label: 'Incidentes periodo',
-                  className: 'num',
-                  render: (r) => formatReporteNumero(r.incidentes_periodo),
-                },
-              ]}
-              rows={carga.ranking}
-            />
           </details>
         </ReporteSection>
       )}

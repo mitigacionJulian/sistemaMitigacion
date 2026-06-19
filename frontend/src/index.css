@@ -655,6 +655,21 @@ a {
   color: #334155;
 }
 
+.landing-map-area-size-tip {
+  margin: 0.55rem 0 0;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.landing-map-area-size-tip-main {
+  margin-bottom: 0.65rem;
+}
+
 .landing-map-area-analisis-cols {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -1582,6 +1597,119 @@ a {
   margin: 0.75rem 0 1rem;
 }
 
+.seccion-modelo-toolbar {
+  padding: 0.65rem 0.85rem;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.seccion-modelo-toolbar label {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, #64748b);
+}
+
+.seccion-controles-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.seccion-modelo-hint {
+  margin-top: -0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.predicciones-seccion + .predicciones-seccion,
+.predicciones-seccion + .patrones-pred-panel {
+  margin-top: 0.25rem;
+}
+
+.patrones-seccion-controles {
+  margin-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.patrones-seccion-controles + .patrones-pred-panel {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  margin-top: 0;
+}
+
+.holdout-panel {
+  margin: 0.75rem 0 1rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.holdout-panel summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #334155;
+}
+
+.holdout-panel-body {
+  margin-top: 0.65rem;
+}
+
+.holdout-table-wrap {
+  margin-top: 0.75rem;
+}
+
+.holdout-umbral-badge {
+  margin: 0.5rem 0 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.holdout-umbral-badge--ok {
+  background: #ecfdf5;
+  border: 1px solid #6ee7b7;
+  color: #065f46;
+}
+
+.holdout-umbral-badge--warn {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+}
+
+.holdout-guia-details {
+  margin-top: 0.5rem;
+}
+
+.holdout-guia-body {
+  margin-top: 0.5rem;
+}
+
+.holdout-guia-tabla {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0 0.75rem;
+  font-size: 0.85rem;
+}
+
+.holdout-guia-tabla th,
+.holdout-guia-tabla td {
+  border: 1px solid #e2e8f0;
+  padding: 0.4rem 0.55rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.holdout-guia-tabla th {
+  background: #f8fafc;
+}
+
 .predicciones-select {
   padding: 0.35rem 0.75rem;
   border-radius: 6px;
@@ -1589,6 +1717,27 @@ a {
   font-size: 0.9rem;
   background: var(--surface);
   color: var(--text);
+}
+
+.predicciones-input,
+.arima-param-input {
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  font-size: 0.9rem;
+  background: var(--surface);
+  color: var(--text);
+  min-width: 5.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.arima-param-field {
+  min-width: 7rem;
+}
+
+.arima-param-input--invalid {
+  border-color: #dc2626;
+  background: #fef2f2;
 }
 
 .chart-panel-comparativo code {
@@ -1679,6 +1828,15 @@ a {
   margin-top: 0.5rem;
 }
 
+.carga-recomendaciones-list {
+  margin: 0.5rem 0 0 1.1rem;
+  padding: 0;
+}
+
+.carga-recomendaciones-list li {
+  margin-bottom: 0.35rem;
+}
+
 .carga-limitaciones {
   margin-top: 0.35rem;
   font-size: 0.82rem;
@@ -1738,6 +1896,69 @@ a {
 .prioridad-table-wrap {
   overflow-x: auto;
   margin-top: 0.75rem;
+}
+
+.prioridad-table-ampliada {
+  min-width: 960px;
+}
+
+.prioridad-alerta-liderazgo {
+  margin: 0.5rem 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid #d97706;
+  background: #fffbeb;
+}
+
+.prioridad-notas-contexto p {
+  margin: 0.25rem 0;
+}
+
+.prioridad-comp-scores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.35rem;
+  max-width: 14rem;
+}
+
+.prioridad-comp-pill {
+  font-size: 0.68rem;
+  line-height: 1.2;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.prioridad-comp-atenuada {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.prioridad-componentes-guia-body {
+  margin-top: 0.35rem;
+}
+
+.prioridad-comp-pill-inline {
+  font-size: 0.72rem;
+  vertical-align: baseline;
+}
+
+.prioridad-peso-inline {
+  font-weight: normal;
+  opacity: 0.85;
+}
+
+.prioridad-ejemplo-lider {
+  margin-top: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.prioridad-ejemplo-lider p {
+  margin: 0 0 0.4rem;
 }
 
 .prioridad-table {
@@ -2447,6 +2668,48 @@ a {
   border-radius: 12px;
   padding: 1.5rem 1.75rem;
   box-shadow: var(--shadow);
+  position: relative;
+}
+
+.reporte-print-watermark,
+.reporte-running-footer,
+.reporte-string-set-title {
+  display: none;
+}
+
+.reporte-string-set-title {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.reporte-logos {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.reporte-logo {
+  object-fit: contain;
+  max-width: 100%;
+}
+
+.reporte-logo-mintransporte {
+  height: 4.5rem;
+  width: auto;
+}
+
+.reporte-logo-universidad {
+  height: 3.25rem;
+  width: auto;
+  max-width: 16rem;
 }
 
 .reporte-sistema {
@@ -2532,10 +2795,57 @@ a {
 }
 
 .reporte-tablero,
-.reporte-predicciones {
+.reporte-predicciones,
+.reporte-asistente {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+}
+
+.reporte-asistente-consulta {
+  break-inside: avoid-page;
+  page-break-inside: avoid;
+  padding: 1rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.reporte-asistente-consulta-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.reporte-asistente-bloque {
+  margin: 0.5rem 0;
+}
+
+.reporte-asistente-rol {
+  margin: 0 0 0.2rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.reporte-asistente-texto {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.reporte-asistente-respuesta {
+  padding: 0.65rem 0.85rem;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.reporte-asistente-meta {
+  margin: 0.35rem 0 0;
 }
 
 .reporte-aviso-proyecciones {
@@ -2790,6 +3100,27 @@ a {
 }
 
 @media print {
+  @page {
+    size: auto;
+    margin: 12mm 14mm 22mm 14mm;
+  }
+
+  @page {
+    @bottom-left {
+      content: string(reporte-titulo, start);
+      font-size: 8.5pt;
+      color: #475569;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+
+    @bottom-right {
+      content: 'Página ' counter(page) ' de ' counter(pages);
+      font-size: 8.5pt;
+      color: #475569;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+  }
+
   .topbar,
   .footer,
   .no-print,
@@ -2826,7 +3157,90 @@ a {
     box-shadow: none;
     border-radius: 0;
     padding: 0;
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+  }
+
+  .reporte-string-set-title {
+    display: block;
+    string-set: reporte-titulo content(text);
+  }
+
+  .reporte-print-watermark {
+    display: block;
+    position: fixed;
+    top: 42%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-35deg);
+    font-size: 4.5rem;
+    font-weight: 700;
+    color: #64748b;
+    opacity: 0.1;
+    letter-spacing: 0.4em;
+    z-index: 0;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+
+  .reporte-running-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 0.35cm 1cm 0.25cm;
+    font-size: 8.5pt;
+    color: #475569;
+    border-top: 1px solid #cbd5e1;
+    background: #fff;
+    z-index: 2;
+  }
+
+  html.reporte-print-margin-boxes .reporte-running-footer {
+    display: none !important;
+  }
+
+  .reporte-running-footer-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .reporte-running-footer-page::before {
+    content: 'Página ' counter(page);
+    white-space: nowrap;
+  }
+
+  html.reporte-print-margin-boxes .reporte-running-footer-page::before {
+    content: none;
+  }
+
+  .reporte-logos {
     break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .reporte-logo-mintransporte {
+    height: 3.5rem;
+  }
+
+  .reporte-logo-universidad {
+    height: 2.75rem;
+  }
+
+  .reporte-asistente-consulta {
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+
+  .reporte-asistente-respuesta {
+    background: #f9fafb;
+    border-color: #d1d5db;
   }
 
   .reporte-header,

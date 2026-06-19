@@ -2,10 +2,10 @@
 ARIMA / SARIMA para proyección mensual de series de conteo.
 
 Órdenes por defecto (exploratorio, sin auto-ARIMA):
-  - ARIMA(1,1,1)
-  - SARIMA(1,1,1)(1,1,1,12)
+  - ARIMA(2,1,3)
+  - SARIMA(2,1,3)(1,1,1,12)
 
-Si el ajuste falla, se intenta (0,1,1) y variante estacional (0,1,1,12).
+Si el ajuste falla, se intenta (1,1,1), luego (0,1,1) y variantes estacionales.
 """
 from __future__ import annotations
 
@@ -15,6 +15,83 @@ from typing import Any
 MIN_MESES_ARIMA = 12
 MIN_MESES_SARIMA = 24
 SEASONAL_PERIOD = 12
+
+ARIMA_ORDER_DEFAULT: tuple[int, int, int] = (2, 1, 3)
+SARIMA_SEASONAL_DEFAULT: tuple[int, int, int, int] = (1, 1, 1, SEASONAL_PERIOD)
+MAX_ARIMA_ORDEN = 6
+
+
+def _parse_enteros_orden(raw: str, n: int) -> list[int] | None:
+    limpio = raw.strip().replace("(", "").replace(")", "").replace("×", ",")
+    partes = [p.strip() for p in limpio.replace(";", ",").split(",") if p.strip()]
+    if len(partes) != n:
+        return None
+    try:
+        nums = [int(float(p)) for p in partes]
+    except (TypeError, ValueError):
+        return None
+    if any(v < 0 or v > MAX_ARIMA_ORDEN for v in nums):
+        return None
+    return nums
+
+
+def parse_arima_order(raw: str | None) -> tuple[int, int, int] | None:
+    if raw is None or not str(raw).strip():
+        return None
+    nums = _parse_enteros_orden(str(raw), 3)
+    if nums is None:
+        return None
+    return nums[0], nums[1], nums[2]
+
+
+def parse_sarima_seasonal(raw: str | None) -> tuple[int, int, int, int] | None:
+    if raw is None or not str(raw).strip():
+        return None
+    limpio = str(raw).strip().replace("(", "").replace(")", "").replace("×", ",")
+    partes = [p.strip() for p in limpio.replace(";", ",").split(",") if p.strip()]
+    if len(partes) != 4:
+        return None
+    try:
+        nums = [int(float(p)) for p in partes]
+    except (TypeError, ValueError):
+        return None
+    if any(v < 0 or v > MAX_ARIMA_ORDEN for v in nums[:3]):
+        return None
+    if nums[3] != SEASONAL_PERIOD:
+        return None
+    return nums[0], nums[1], nums[2], nums[3]
+
+
+def _candidatos_ajuste(
+    *,
+    seasonal: bool,
+    order: tuple[int, int, int] | None,
+    seasonal_order: tuple[int, int, int, int] | None,
+) -> list[tuple[tuple[int, int, int], tuple[int, int, int, int]]]:
+    ord_base = order or ARIMA_ORDER_DEFAULT
+    seas_base: tuple[int, int, int, int] = (
+        seasonal_order
+        if seasonal_order is not None
+        else (SARIMA_SEASONAL_DEFAULT if seasonal else (0, 0, 0, 0))
+    )
+    usa_defaults = ord_base == ARIMA_ORDER_DEFAULT and (
+        not seasonal or seas_base == SARIMA_SEASONAL_DEFAULT
+    )
+    if usa_defaults:
+        candidatos: list[tuple[tuple[int, int, int], tuple[int, int, int, int]]] = [
+            (ARIMA_ORDER_DEFAULT, seas_base),
+            ((1, 1, 1), seas_base),
+            ((0, 1, 1), seas_base),
+        ]
+        if seasonal:
+            candidatos.insert(1, (ARIMA_ORDER_DEFAULT, (0, 1, 1, SEASONAL_PERIOD)))
+            candidatos.append(((1, 1, 1), (0, 1, 1, SEASONAL_PERIOD)))
+        return candidatos
+
+    candidatos = [(ord_base, seas_base), ((1, 1, 1), seas_base), ((0, 1, 1), seas_base)]
+    if seasonal:
+        candidatos.append((ord_base, (0, 1, 1, SEASONAL_PERIOD)))
+    return candidatos
 
 
 def min_meses_requeridos(*, seasonal: bool) -> int:
@@ -47,22 +124,19 @@ def _fit_arima_internal(
     valores: list[float],
     *,
     seasonal: bool,
+    order: tuple[int, int, int] | None = None,
+    seasonal_order: tuple[int, int, int, int] | None = None,
 ) -> tuple[Any, tuple[int, int, int], tuple[int, int, int, int]] | None:
     try:
         from statsmodels.tsa.arima.model import ARIMA
     except ImportError:
         return None
 
-    order = (1, 1, 1)
-    seasonal_order: tuple[int, int, int, int] = (
-        (1, 1, 1, SEASONAL_PERIOD) if seasonal else (0, 0, 0, 0)
+    candidatos = _candidatos_ajuste(
+        seasonal=seasonal,
+        order=order,
+        seasonal_order=seasonal_order,
     )
-    candidatos: list[tuple[tuple[int, int, int], tuple[int, int, int, int]]] = [
-        (order, seasonal_order),
-        ((0, 1, 1), seasonal_order),
-    ]
-    if seasonal:
-        candidatos.append(((1, 1, 1), (0, 1, 1, SEASONAL_PERIOD)))
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -84,6 +158,8 @@ def ajustar_y_proyectar_arima(
     seasonal: bool,
     valor_min: float = 0.0,
     valor_max: float | None = None,
+    order: tuple[int, int, int] | None = None,
+    seasonal_order: tuple[int, int, int, int] | None = None,
 ) -> tuple[list[float], list[float], dict[str, Any]] | None:
     """
     Ajusta ARIMA o SARIMA y devuelve (yhat_histórico, proyección, coeficientes).
@@ -103,11 +179,18 @@ def ajustar_y_proyectar_arima(
         return None
 
     ys = [float(v) for v in valores]
-    fit = _fit_arima_internal(ys, seasonal=seasonal)
+    order_sol = order
+    seasonal_order_sol = seasonal_order
+    fit = _fit_arima_internal(
+        ys,
+        seasonal=seasonal,
+        order=order_sol,
+        seasonal_order=seasonal_order_sol,
+    )
     if fit is None:
         return None
 
-    res, order, seasonal_order = fit
+    res, order_fit, seasonal_order_fit = fit
     yhat = [_clamp_val(x) for x in _alignar_fitted(ys, res.fittedvalues)]
 
     fc_raw = res.forecast(steps=horizonte)
@@ -120,10 +203,16 @@ def ajustar_y_proyectar_arima(
 
     fore = [round(_clamp_val(x), 2) for x in fc_list]
 
-    n_params = sum(order) + (sum(seasonal_order[:3]) if seasonal else 0)
+    n_params = sum(order_fit) + (sum(seasonal_order_fit[:3]) if seasonal else 0)
     coeficientes = {
-        "orden_arima": list(order),
-        "orden_estacional": list(seasonal_order) if seasonal else None,
+        "orden_arima": list(order_fit),
+        "orden_estacional": list(seasonal_order_fit) if seasonal else None,
+        "orden_arima_solicitado": list(order_sol or ARIMA_ORDER_DEFAULT),
+        "orden_estacional_solicitado": (
+            list(seasonal_order_sol if seasonal_order_sol is not None else SARIMA_SEASONAL_DEFAULT)
+            if seasonal
+            else None
+        ),
         "aic": round(float(res.aic), 2) if res.aic is not None else None,
         "bic": round(float(res.bic), 2) if res.bic is not None else None,
         **_metricas_ajuste(ys, yhat, max(n_params, 2)),
@@ -131,8 +220,8 @@ def ajustar_y_proyectar_arima(
     bondad = _interpretacion_bondad(coeficientes["r2"], coeficientes.get("mape_pct"))
     coeficientes.update(bondad)
     coeficientes["nota"] = (
-        f"ARIMA{order}"
-        + (f"×{seasonal_order}" if seasonal else "")
+        f"ARIMA{tuple(order_fit)}"
+        + (f"×{tuple(seasonal_order_fit)}" if seasonal else "")
         + ". Criterios AIC/BIC orientan comparación entre órdenes probados; "
         "no garantizan validez causal."
     )

@@ -4,19 +4,48 @@ import {
   labelFiltroReporte,
 } from './filtrosReporte.js'
 import { formatReporteFecha } from './reporteFormat.js'
+import { resolveReporteTitulo } from './reporteTitulo.js'
 
 export const REPORTE_DISCLAIMER =
   'Informe exploratorio basado en datos históricos depurados (Mede). No establece relaciones causales ni sustituye estudios técnicos oficiales. Las proyecciones, cuando aplique, son estimaciones modeladas y no hechos observados.'
 
+const LOGO_MINTRANSPORTE = '/images/reportes/logo-mintransporte.png'
+const LOGO_UNIVERSIDAD = '/images/reportes/logo-universidad.png'
+
 export function ReporteLayout({ meta, children }) {
-  const titulo = meta?.titulo || meta?.seccion_etiqueta || 'Reporte'
+  const { titulo_display } = resolveReporteTitulo(meta)
   const filtros = filtrosReporteEntries(meta?.filtros)
 
   return (
     <article className="reporte-document">
+      <div className="reporte-print-watermark" aria-hidden="true">
+        CONFIDENCIAL
+      </div>
+
+      <div className="reporte-string-set-title" aria-hidden="true">
+        {titulo_display}
+      </div>
+
+      <div className="reporte-running-footer" aria-hidden="true">
+        <span className="reporte-running-footer-title">{titulo_display}</span>
+        <span className="reporte-running-footer-page" />
+      </div>
+
       <header className="reporte-header">
+        <div className="reporte-logos">
+          <img
+            src={LOGO_MINTRANSPORTE}
+            alt="Ministerio de Transporte — Colombia"
+            className="reporte-logo reporte-logo-mintransporte"
+          />
+          <img
+            src={LOGO_UNIVERSIDAD}
+            alt="Universidad de San Buenaventura"
+            className="reporte-logo reporte-logo-universidad"
+          />
+        </div>
         <p className="reporte-sistema">{meta?.sistema}</p>
-        <h1 className="reporte-titulo">{titulo}</h1>
+        <h1 className="reporte-titulo">{titulo_display}</h1>
         <dl className="reporte-meta-grid">
           <div>
             <dt>Usuario</dt>
@@ -34,6 +63,12 @@ export function ReporteLayout({ meta, children }) {
             <dt>Sección</dt>
             <dd>{meta?.seccion_etiqueta}</dd>
           </div>
+          {meta?.numero_reporte ? (
+            <div>
+              <dt>N.º reporte</dt>
+              <dd>{meta.numero_reporte}</dd>
+            </div>
+          ) : null}
         </dl>
         {filtros.length > 0 && (
           <section className="reporte-filtros">
@@ -61,7 +96,8 @@ export function ReporteLayout({ meta, children }) {
       <footer className="reporte-footer">
         <p className="reporte-disclaimer">{REPORTE_DISCLAIMER}</p>
         <p className="reporte-footer-meta muted small">
-          Documento generado por {meta?.usuario} ({meta?.rol}) — {formatReporteFecha(meta?.generado_en)}
+          {titulo_display} — Documento generado por {meta?.usuario} ({meta?.rol}) —{' '}
+          {formatReporteFecha(meta?.generado_en)}
         </p>
       </footer>
     </article>

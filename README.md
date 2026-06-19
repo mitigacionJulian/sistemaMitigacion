@@ -1,6 +1,6 @@
-# SG Mitigación de Accidentes de Tránsito
+# ViaData — Medellín
 
-Sistema web para visualización y análisis de accidentalidad (caso de estudio: Medellín, datos Mede).
+Sistema web para visualización y análisis de accidentalidad vial (caso de estudio: Medellín, datos Mede).
 
 ## Stack (fijado para el trabajo de grado)
 

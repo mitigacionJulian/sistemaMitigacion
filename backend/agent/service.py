@@ -44,7 +44,9 @@ from .tools import (
 
 
 
-SYSTEM_PROMPT_PUBLIC = """Eres un asistente del sistema SG Mitigación de Accidentes (Medellín, Colombia).
+from config.brand import APP_NAME
+
+SYSTEM_PROMPT_PUBLIC = f"""Eres un asistente del sistema {APP_NAME} (Colombia).
 
 Respondes SIEMPRE en español claro y conciso.
 
@@ -76,7 +78,7 @@ Reglas:
 
 
 
-SYSTEM_PROMPT_ANALYST = """Eres un asistente del sistema SG Mitigación de Accidentes (Medellín, Colombia).
+SYSTEM_PROMPT_ANALYST = f"""Eres un asistente del sistema {APP_NAME} (Colombia).
 
 Respondes SIEMPRE en español claro y conciso.
 

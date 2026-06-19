@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
+import { APP_NAME, APP_NAME_SHORT } from '../config/brand.js'
 
 const navClass = ({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')
 
@@ -10,6 +11,10 @@ export function Layout() {
   const [navOpen, setNavOpen] = useState(false)
 
   const closeNav = useCallback(() => setNavOpen(false), [])
+
+  useEffect(() => {
+    document.title = APP_NAME
+  }, [])
 
   useEffect(() => {
     closeNav()
@@ -33,8 +38,8 @@ export function Layout() {
     <div className={`app-shell${navOpen ? ' is-nav-open' : ''}`}>
       <header className={`topbar${navOpen ? ' is-nav-open' : ''}`}>
         <Link to="/" className="brand" onClick={closeNav}>
-          <span className="brand-full">SG Mitigación — Medellín</span>
-          <span className="brand-short">SG Medellín</span>
+          <span className="brand-full">{APP_NAME}</span>
+          <span className="brand-short">{APP_NAME_SHORT}</span>
         </Link>
         <button
           type="button"

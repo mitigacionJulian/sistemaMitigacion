@@ -19,6 +19,8 @@ const FILTER_LABELS = {
   excluir_covid: 'Excluir meses COVID',
   desglose_clase: 'Desglose por clase',
   desglose_comuna: 'Desglose por comuna',
+  consultas_incluidas: 'Consultas incluidas',
+  modo: 'Modo del asistente',
   ventana_ma: 'Ventana media móvil',
 }
 

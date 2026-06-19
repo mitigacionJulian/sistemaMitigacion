@@ -138,6 +138,97 @@ def test_proporcion_sarima_requiere_24_meses():
     assert p["meta"]["sin_modelo"]
 
 
+def test_proporcion_estacional_usa_float_sin_redondeo():
+    """% bajos (p. ej. 0,66) no deben colapsar a 0/1 al ajustar."""
+    raw = {
+        f"2020-{m:02d}": {"victimas": 500, "fatales": 3 + (m % 2)}
+        for m in range(1, 13)
+    }
+    with patch(
+        "dashboard.proporcion_fatales_mensual._query_victimas_fatales_mes",
+        return_value=raw,
+    ):
+        p = build_proporcion_fatales_payload(
+            date(2020, 1, 1),
+            date(2020, 12, 31),
+            FiltrosKpi(),
+            horizonte_meses=2,
+            modelo="estacional",
+            excluir_covid=False,
+        )
+    assert not p["meta"]["sin_modelo"]
+    ajustes = [r["ajuste_pct"] for r in p["serie_historica"] if r.get("ajuste_pct") is not None]
+    assert any(0 < v < 2 for v in ajustes)
+
+
+def test_proporcion_logit_offset():
+    raw = {
+        f"2020-{m:02d}": {"victimas": 200 + m * 5, "fatales": 2 + (m % 3)}
+        for m in range(1, 13)
+    }
+    with patch(
+        "dashboard.proporcion_fatales_mensual._query_victimas_fatales_mes",
+        return_value=raw,
+    ):
+        p = build_proporcion_fatales_payload(
+            date(2020, 1, 1),
+            date(2020, 12, 31),
+            FiltrosKpi(),
+            horizonte_meses=2,
+            modelo="logit_offset",
+            excluir_covid=False,
+        )
+    assert p["meta"]["modelo"] == "logit_offset"
+    assert not p["meta"]["sin_modelo"]
+    assert len(p["proyeccion"]) == 2
+
+
+def test_proporcion_ratio_compuesto():
+    raw = {
+        f"2020-{m:02d}": {"victimas": 300, "fatales": 5 + (m % 2)}
+        for m in range(1, 13)
+    }
+    with patch(
+        "dashboard.proporcion_fatales_mensual._query_victimas_fatales_mes",
+        return_value=raw,
+    ):
+        p = build_proporcion_fatales_payload(
+            date(2020, 1, 1),
+            date(2020, 12, 31),
+            FiltrosKpi(),
+            horizonte_meses=2,
+            modelo="ratio_compuesto",
+            excluir_covid=False,
+        )
+    assert p["meta"]["modelo"] == "ratio_compuesto"
+    assert not p["meta"]["sin_modelo"]
+    assert all("pct_banda_inf" in x for x in p["proyeccion"])
+
+
+def test_proporcion_holdout_activo():
+    raw = {
+        f"2020-{m:02d}": {"victimas": 400, "fatales": 8}
+        for m in range(1, 13)
+    }
+    with patch(
+        "dashboard.proporcion_fatales_mensual._query_victimas_fatales_mes",
+        return_value=raw,
+    ):
+        p = build_proporcion_fatales_payload(
+            date(2020, 1, 1),
+            date(2020, 12, 31),
+            FiltrosKpi(),
+            modelo="estacional",
+            holdout_meses=3,
+            excluir_covid=False,
+        )
+    h = p["meta"]["holdout"]
+    assert h["activo"]
+    assert h["holdout_meses"] == 3
+    assert h["unidad"] == "pct"
+    assert len(h["meses_prueba"]) == 3
+
+
 @pytest.mark.django_db
 def test_api_proporcion_fatales_ok(analista_client):
     fake = {

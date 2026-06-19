@@ -46,6 +46,7 @@ from .predicciones_mensuales import (
     MA_VENTANA_MAX,
     MA_VENTANA_MIN,
     build_predicciones_mensuales_payload,
+    parse_arima_opciones,
 )
 from .prioridad_territorial import build_prioridad_territorial_payload
 from .proporcion_fatales_mensual import build_proporcion_fatales_payload
@@ -170,6 +171,22 @@ def _parse_horizonte_meses(qs) -> int:
     except (TypeError, ValueError):
         return 3
     return max(1, min(12, v))
+
+
+def _parse_holdout_meses(qs) -> int:
+    raw = qs.get("holdout_meses")
+    if raw is None or raw == "":
+        return 3
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        return 3
+    return max(1, min(6, v))
+
+
+def _parse_evaluar_holdout(qs) -> bool:
+    raw = (qs.get("evaluar_holdout") or qs.get("holdout") or "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
 
 
 def _parse_limite_mapa(qs) -> int:
@@ -341,6 +358,8 @@ def dashboard_predicciones_mensuales_view(request):
       variable: incidentes | victimas | victimas_fatales (default incidentes);
       desglose_clase: 1 para series por clase (solo si no hay clase_incidente_id);
       excluir_covid: 1 para no usar mar–ago 2020 en el ajuste (siguen en el gráfico).
+      holdout_meses (1–6, default 3): meses finales reservados para validación hold-out.
+      evaluar_holdout: 0 para omitir la validación hold-out.
     """
     today = date.today()
     default_desde = date(today.year, 1, 1)
@@ -356,12 +375,16 @@ def dashboard_predicciones_mensuales_view(request):
         ventana_ma = _parse_ventana_ma(request.GET)
         desglose_clase = _parse_desglose_clase(request.GET)
         excluir_covid = _parse_excluir_covid(request.GET)
+        holdout_meses = _parse_holdout_meses(request.GET)
+        evaluar_holdout = _parse_evaluar_holdout(request.GET)
+        arima_opciones = parse_arima_opciones(request.GET)
     except (ValueError, TypeError):
         return Response(
             {
                 "detail": (
                     "Parámetros inválidos. modelo: ols|estacional|poisson|media_movil|arima|sarima; "
-                    "ventana_ma: 2–12; variable: incidentes|victimas|victimas_fatales."
+                    "ventana_ma: 2–12; variable: incidentes|victimas|victimas_fatales; "
+                    "arima_order: p,d,q (0–6); sarima_seasonal: P,D,Q,12."
                 )
             },
             status=status.HTTP_400_BAD_REQUEST,
@@ -392,6 +415,9 @@ def dashboard_predicciones_mensuales_view(request):
             desglose_clase=desglose_clase,
             excluir_covid=excluir_covid,
             ventana_ma=ventana_ma,
+            holdout_meses=holdout_meses,
+            evaluar_holdout=evaluar_holdout,
+            arima_opciones=arima_opciones,
         )
     except DatabaseError as exc:
         payload = {
@@ -478,6 +504,10 @@ def _parse_modelo_proporcion(qs) -> str:
         "lineal": "ols",
         "logistica": "logistica",
         "logistic": "logistica",
+        "logit_offset": "logit_offset",
+        "logit_exposicion": "logit_offset",
+        "ratio_compuesto": "ratio_compuesto",
+        "ratio": "ratio_compuesto",
         "estacional": "estacional",
         "seasonal": "estacional",
         "media_movil": "media_movil",
@@ -522,7 +552,8 @@ def dashboard_proporcion_fatales_mensual_view(request):
     """
     P07 — Proporción mensual de víctimas fatales (% sobre víctimas del mes).
 
-    Query: modelo=ols|logistica|estacional|media_movil|arima|sarima (default estacional), horizonte_meses (1–12),
+    Query: modelo=estacional|logit_offset|ratio_compuesto|ols|logistica|media_movil|arima|sarima (default estacional),
+    horizonte_meses (1–12), holdout_meses (1–6, default 3),
     ventana_ma (2–12, solo media_movil), desglose_comuna=1 (top 10 comunas si no hay comuna_id), excluir_covid.
     """
     today = date.today()
@@ -538,12 +569,15 @@ def dashboard_proporcion_fatales_mensual_view(request):
         ventana_ma = _parse_ventana_ma(request.GET)
         desglose_comuna = _parse_desglose_comuna(request.GET)
         excluir_covid = _parse_excluir_covid(request.GET)
+        arima_opciones = parse_arima_opciones(request.GET)
+        holdout_meses = _parse_holdout_meses(request.GET)
     except (ValueError, TypeError):
         return Response(
             {
                 "detail": (
-                    "Parámetros inválidos. modelo: ols|logistica|estacional|media_movil|arima|sarima; "
-                    "ventana_ma: 2–12; horizonte_meses: 1–12."
+                    "Parámetros inválidos. modelo: estacional|logit_offset|ratio_compuesto|ols|logistica|"
+                    "media_movil|arima|sarima; ventana_ma: 2–12; horizonte_meses: 1–12; holdout_meses: 1–6; "
+                    "arima_order: p,d,q; sarima_seasonal: P,D,Q,12."
                 )
             },
             status=status.HTTP_400_BAD_REQUEST,
@@ -575,6 +609,8 @@ def dashboard_proporcion_fatales_mensual_view(request):
             excluir_covid=excluir_covid,
             desglose_comuna=desglose_comuna,
             ventana_ma=ventana_ma,
+            arima_opciones=arima_opciones,
+            holdout_meses=holdout_meses,
         )
     except DatabaseError as exc:
         payload = {
@@ -611,12 +647,14 @@ def dashboard_carga_esperada_territorial_view(request):
         modelo = _parse_modelo_carga(request.GET)
         ventana_ma = _parse_ventana_ma(request.GET)
         excluir_covid = _parse_excluir_covid(request.GET)
+        arima_opciones = parse_arima_opciones(request.GET)
     except (ValueError, TypeError):
         return Response(
             {
                 "detail": (
                     "Parámetros inválidos. nivel: comuna|barrio; "
-                    "modelo: ols|estacional|media_movil|arima|sarima; ventana_ma: 2–12; limite: 1–50."
+                    "modelo: ols|estacional|media_movil|arima|sarima; ventana_ma: 2–12; limite: 1–50; "
+                    "arima_order: p,d,q; sarima_seasonal: P,D,Q,12."
                 )
             },
             status=status.HTTP_400_BAD_REQUEST,
@@ -645,6 +683,7 @@ def dashboard_carga_esperada_territorial_view(request):
             excluir_covid=excluir_covid,
             limite=limite,
             ventana_ma=ventana_ma,
+            arima_opciones=arima_opciones,
         )
     except DatabaseError as exc:
         payload = {
@@ -654,6 +693,14 @@ def dashboard_carga_esperada_territorial_view(request):
         if settings.DEBUG:
             payload["debug"] = str(exc)
         return Response(payload, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    except Exception as exc:
+        payload = {
+            "detail": "No se pudo calcular la carga esperada territorial.",
+            "code": "carga_error",
+        }
+        if settings.DEBUG:
+            payload["debug"] = str(exc)
+        return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     return Response(payload)
 
@@ -855,12 +902,14 @@ def dashboard_matriz_dia_hora_proyectada_view(request):
         modelo = _parse_modelo_carga(request.GET)
         ventana_ma = _parse_ventana_ma(request.GET)
         excluir_covid = _parse_excluir_covid(request.GET)
+        arima_opciones = parse_arima_opciones(request.GET)
     except (ValueError, TypeError):
         return Response(
             {
                 "detail": (
                     "Parámetros inválidos. horizonte_meses: 1–12; "
-                    "modelo: ols|estacional|media_movil|arima|sarima; ventana_ma: 2–12."
+                    "modelo: ols|estacional|media_movil|arima|sarima; ventana_ma: 2–12; "
+                    "arima_order: p,d,q; sarima_seasonal: P,D,Q,12."
                 )
             },
             status=status.HTTP_400_BAD_REQUEST,
@@ -881,6 +930,7 @@ def dashboard_matriz_dia_hora_proyectada_view(request):
             modelo=modelo,
             excluir_covid=excluir_covid,
             ventana_ma=ventana_ma,
+            arima_opciones=arima_opciones,
         )
     except DatabaseError as exc:
         payload = {
@@ -914,12 +964,14 @@ def dashboard_por_dia_semana_proyectado_view(request):
         modelo = _parse_modelo_carga(request.GET)
         ventana_ma = _parse_ventana_ma(request.GET)
         excluir_covid = _parse_excluir_covid(request.GET)
+        arima_opciones = parse_arima_opciones(request.GET)
     except (ValueError, TypeError):
         return Response(
             {
                 "detail": (
                     "Parámetros inválidos. horizonte_meses: 1–12; "
-                    "modelo: ols|estacional|media_movil|arima|sarima; ventana_ma: 2–12."
+                    "modelo: ols|estacional|media_movil|arima|sarima; ventana_ma: 2–12; "
+                    "arima_order: p,d,q; sarima_seasonal: P,D,Q,12."
                 )
             },
             status=status.HTTP_400_BAD_REQUEST,
@@ -940,6 +992,7 @@ def dashboard_por_dia_semana_proyectado_view(request):
             modelo=modelo,
             excluir_covid=excluir_covid,
             ventana_ma=ventana_ma,
+            arima_opciones=arima_opciones,
         )
     except DatabaseError as exc:
         payload = {

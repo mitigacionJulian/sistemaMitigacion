@@ -73,6 +73,8 @@ def test_reportes_preview_post_con_filtros(analista_client):
     assert r.status_code == 200
     meta = r.json()["meta"]
     assert meta["titulo"] == "Informe de prueba"
+    assert meta["titulo_display"] == "Informe de prueba"
+    assert meta["numero_reporte"].startswith("SG-")
     assert meta["notas"] == "Nota opcional"
     assert meta["filtros"] == filtros
 
@@ -89,6 +91,21 @@ def test_reportes_preview_seccion_invalida(analista_client):
     url = reverse("reportes-preview")
     r = analista_client.get(url, {"seccion": "inventada"})
     assert r.status_code == 400
+
+
+@pytest.mark.django_db
+def test_reportes_preview_titulo_predeterminado(analista_client):
+    url = reverse("reportes-preview")
+    r = analista_client.post(
+        url,
+        {"seccion": "tablero", "titulo": "", "notas": "", "filtros": {}},
+        format="json",
+    )
+    assert r.status_code == 200
+    meta = r.json()["meta"]
+    assert meta["titulo"] == ""
+    assert meta["numero_reporte"].startswith("SG-")
+    assert meta["titulo_display"].startswith("Reporte Tablero de indicadores — SG-")
 
 
 @pytest.mark.django_db

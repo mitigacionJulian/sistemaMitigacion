@@ -118,6 +118,10 @@ const VIEW_MODES = [
   },
 ]
 
+const HOTSPOT_AREA_POLYGON_TIP =
+  'Al seleccionar un polígono grande el sistema tardará más en cargar y guardar los datos en caché. ' +
+  'Se recomienda dibujar áreas de aproximadamente 1 km de lado (≈1 km²) o menos.'
+
 const CHOROPLETH_RGB_STOPS = [
   [0, [0, 0, 4]],
   [0.2, [66, 10, 104]],
@@ -1892,6 +1896,12 @@ export function LandingIncidentMap({
               <span>{statusLine}</span>
               {mapBusy && <span className="landing-map-statusbar-loading">Cargando…</span>}
             </div>
+          )}
+
+          {viewMode === 'cuadricula' && metodoHotspot === 'area' && (
+            <p className="landing-map-area-size-tip landing-map-area-size-tip-main" role="note">
+              {HOTSPOT_AREA_POLYGON_TIP}
+            </p>
           )}
 
           {viewMode === 'cuadricula' && metodoHotspot === 'area' && areaSelectionGeojson && (

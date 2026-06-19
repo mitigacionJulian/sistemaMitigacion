@@ -5,8 +5,14 @@ from unittest.mock import patch
 import pytest
 
 from dashboard.kpis import FiltrosKpi
-from dashboard.modelos_arima import MIN_MESES_ARIMA, MIN_MESES_SARIMA, ajustar_y_proyectar_arima
-from dashboard.predicciones_mensuales import build_predicciones_mensuales_payload
+from dashboard.modelos_arima import (
+    MIN_MESES_ARIMA,
+    MIN_MESES_SARIMA,
+    ajustar_y_proyectar_arima,
+    parse_arima_order,
+    parse_sarima_seasonal,
+)
+from dashboard.predicciones_mensuales import ArimaOpciones, build_predicciones_mensuales_payload
 
 statsmodels = pytest.importorskip("statsmodels")
 
@@ -34,7 +40,7 @@ def test_arima_ajusta_y_proyecta():
     assert len(yhat) == len(ys)
     assert len(fore) == 2
     assert all(x >= 0 for x in fore)
-    assert coef.get("orden_arima") is not None
+    assert coef.get("orden_arima") == [2, 1, 3]
     assert coef.get("aic") is not None
 
 
@@ -67,3 +73,38 @@ def test_build_payload_sarima_serie_larga():
     assert p["meta"]["sin_modelo"] is False
     assert len(p["proyeccion"]) == 3
     assert p["meta"]["coeficientes"].get("orden_estacional") is not None
+
+
+def test_parse_arima_order_acepta_parentesis():
+    assert parse_arima_order("(1,1,1)") == (1, 1, 1)
+    assert parse_arima_order("2,1,3") == (2, 1, 3)
+    assert parse_arima_order("9,1,1") is None
+
+
+def test_parse_sarima_seasonal_requiere_periodo_12():
+    assert parse_sarima_seasonal("(1,1,1,12)") == (1, 1, 1, 12)
+    assert parse_sarima_seasonal("1,1,1,6") is None
+
+
+def test_arima_orden_personalizado():
+    ys = [float(50 + (i % 6) * 2) for i in range(MIN_MESES_ARIMA)]
+    res = ajustar_y_proyectar_arima(ys, 2, seasonal=False, order=(1, 1, 1))
+    assert res is not None
+    _, _, coef = res
+    assert coef.get("orden_arima") == [1, 1, 1]
+    assert coef.get("orden_arima_solicitado") == [1, 1, 1]
+
+
+def test_build_payload_arima_con_orden_query():
+    act = {f"2020-{(i % 12) + 1:02d}": 40 + i for i in range(12)}
+    with patch("dashboard.predicciones_mensuales._query_mensual_valores", return_value=act):
+        p = build_predicciones_mensuales_payload(
+            date(2020, 1, 1),
+            date(2020, 12, 31),
+            FiltrosKpi(),
+            2,
+            modelo="arima",
+            arima_opciones=ArimaOpciones(order=(1, 1, 1)),
+        )
+    assert p["meta"]["arima_order"] == [1, 1, 1]
+    assert p["meta"]["coeficientes"]["orden_arima_solicitado"] == [1, 1, 1]

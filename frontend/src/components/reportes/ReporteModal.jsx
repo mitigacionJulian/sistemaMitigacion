@@ -16,6 +16,7 @@ export function ReporteModal({
   query = {},
   captureMapSnapshot,
   mapaLeyenda = null,
+  customFetch,
 }) {
   const titleId = useId()
   const navigate = useNavigate()
@@ -50,13 +51,15 @@ export function ReporteModal({
         mapaImagen = await captureMapSnapshot()
       }
 
-      const reporte = await fetchReporteForSeccion({
-        seccion,
-        titulo: titulo.trim(),
-        notas: notas.trim(),
-        filtros,
-        query,
-      })
+      const reporte = customFetch
+        ? await customFetch({ titulo: titulo.trim(), notas: notas.trim(), filtros, query })
+        : await fetchReporteForSeccion({
+            seccion,
+            titulo: titulo.trim(),
+            notas: notas.trim(),
+            filtros,
+            query,
+          })
 
       if (seccion === 'mapa' && reporte.cuerpo?.tipo === 'mapa') {
         if (mapaImagen) {

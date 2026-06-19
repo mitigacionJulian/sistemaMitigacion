@@ -1,3 +1,5 @@
+import { APP_NAME_SHORT } from '../config/brand.js'
+
 const STORAGE_KEY = 'sg_agent_history_v1'
 const MAX_ENTRIES = 80
 
@@ -88,7 +90,7 @@ export function buildAgentHistoryReport({ analyst = false } = {}) {
   const entries = loadAgentHistory({ analyst })
   const modo = analyst ? 'Analista (histórico + predicciones)' : 'Público (solo histórico)'
   const lines = [
-    'Reporte de consultas — Asistente de accidentalidad (SG Mitigación)',
+    `Reporte de consultas — Asistente de accidentalidad (${APP_NAME_SHORT})`,
     `Generado: ${formatReportTimestamp(new Date().toISOString())}`,
     `Modo: ${modo}`,
     `Total de consultas guardadas: ${entries.length}`,

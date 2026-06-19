@@ -11,6 +11,8 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+from config.brand import APP_NAME
+
 from .jwt_serializers import CustomTokenObtainPairSerializer
 from .models import PasswordResetToken, PerfilUsuario
 from .phone import build_whatsapp_url, normalize_phone_co
@@ -109,7 +111,7 @@ def password_reset_request_view(request):
     frontend = getattr(settings, "FRONTEND_URL", "http://localhost:5173").rstrip("/")
     reset_url = f"{frontend}/recuperar-clave?token={token_plain}"
     message = (
-        f"Recuperación de contraseña — SG Mitigación Medellín.\n"
+        f"Recuperación de contraseña — {APP_NAME}.\n"
         f"Usuario: {user.username}\n"
         f"Enlace (válido {ttl_hours} h): {reset_url}"
     )
