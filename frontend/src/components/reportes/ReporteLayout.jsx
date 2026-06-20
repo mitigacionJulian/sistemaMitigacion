@@ -4,6 +4,7 @@ import {
   labelFiltroReporte,
 } from './filtrosReporte.js'
 import { formatReporteFecha } from './reporteFormat.js'
+import { ReportePrintLayer } from './ReportePrintLayer.jsx'
 import { resolveReporteTitulo } from './reporteTitulo.js'
 
 export const REPORTE_DISCLAIMER =
@@ -17,21 +18,10 @@ export function ReporteLayout({ meta, children }) {
   const filtros = filtrosReporteEntries(meta?.filtros)
 
   return (
-    <article className="reporte-document">
-      <div className="reporte-print-watermark" aria-hidden="true">
-        CONFIDENCIAL
-      </div>
-
-      <div className="reporte-string-set-title" aria-hidden="true">
-        {titulo_display}
-      </div>
-
-      <div className="reporte-running-footer" aria-hidden="true">
-        <span className="reporte-running-footer-title">{titulo_display}</span>
-        <span className="reporte-running-footer-page" />
-      </div>
-
-      <header className="reporte-header">
+    <>
+      <ReportePrintLayer tituloDisplay={titulo_display} />
+      <article className="reporte-document">
+        <header className="reporte-header">
         <div className="reporte-logos">
           <img
             src={LOGO_MINTRANSPORTE}
@@ -89,17 +79,18 @@ export function ReporteLayout({ meta, children }) {
             <p>{meta.notas}</p>
           </section>
         ) : null}
-      </header>
+        </header>
 
-      <div className="reporte-body">{children}</div>
+        <div className="reporte-body">{children}</div>
 
-      <footer className="reporte-footer">
-        <p className="reporte-disclaimer">{REPORTE_DISCLAIMER}</p>
-        <p className="reporte-footer-meta muted small">
-          {titulo_display} — Documento generado por {meta?.usuario} ({meta?.rol}) —{' '}
-          {formatReporteFecha(meta?.generado_en)}
-        </p>
-      </footer>
-    </article>
+        <footer className="reporte-footer">
+          <p className="reporte-disclaimer">{REPORTE_DISCLAIMER}</p>
+          <p className="reporte-footer-meta muted small">
+            {titulo_display} — Documento generado por {meta?.usuario} ({meta?.rol}) —{' '}
+            {formatReporteFecha(meta?.generado_en)}
+          </p>
+        </footer>
+      </article>
+    </>
   )
 }

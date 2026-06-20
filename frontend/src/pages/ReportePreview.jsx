@@ -38,7 +38,10 @@ export function ReportePreview() {
     }
     const limpiar = () => document.documentElement.classList.remove('reporte-print-margin-boxes')
     window.addEventListener('afterprint', limpiar, { once: true })
-    window.print()
+    // Un frame para que el navegador aplique la clase antes del diálogo de impresión.
+    requestAnimationFrame(() => {
+      window.print()
+    })
   }
 
   if (!reporte) {

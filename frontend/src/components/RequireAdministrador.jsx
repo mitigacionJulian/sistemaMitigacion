@@ -1,8 +1,8 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 
-export function RequireAnalista({ children }) {
-  const { user, loading, isAnalista } = useAuth()
+export function RequireAdministrador({ children }) {
+  const { user, loading, isAdministrador } = useAuth()
   const location = useLocation()
 
   if (loading) {
@@ -13,13 +13,13 @@ export function RequireAnalista({ children }) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />
   }
 
-  if (!isAnalista) {
+  if (!isAdministrador) {
     return (
       <div className="auth-card auth-card-wide">
         <h1>Acceso restringido</h1>
         <p className="muted">
-          La sección <strong>Predicciones</strong> está disponible solo para usuarios con rol{' '}
-          <strong>analista</strong> o <strong>administrador</strong>. Su rol actual es{' '}
+          La gestión de usuarios está disponible solo para el rol{' '}
+          <strong>administrador</strong>. Su rol actual es{' '}
           <strong>{user.perfil?.rol_nombre ?? 'sin rol'}</strong>.
         </p>
         <p>

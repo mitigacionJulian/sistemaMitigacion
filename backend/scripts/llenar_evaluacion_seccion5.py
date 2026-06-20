@@ -34,7 +34,7 @@ HORIZONTE_MESES = 3
 VENTANA_MA = 3
 MIN_INCIDENTES_PERIODO = 100
 
-MODELOS_A = ["estacional", "ols", "media_movil", "arima", "sarima"]
+MODELOS_A = ["estacional", "ols", "media_movil", "tres_sigma", "arima", "sarima"]
 MODELO_REFERENCIA = "estacional"
 
 ESCENARIOS: dict[str, dict] = {

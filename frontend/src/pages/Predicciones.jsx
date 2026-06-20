@@ -25,9 +25,12 @@ import {
   fetchDashboardProporcionFatalesMensual,
   fetchDashboardRangoFechas,
 } from '../api/client.js'
+import { ChartWheelZoom } from '../components/ChartWheelZoom.jsx'
+import { WheelZoomTooltip, wheelZoomTooltipProps } from '../components/WheelZoomTooltip.jsx'
 import { PatronesDiaHoraPanel } from '../components/PatronesDiaHoraPanel.jsx'
 import { GenerarReporteButton } from '../components/reportes/GenerarReporteButton.jsx'
 import { RouteErrorBoundary } from '../components/RouteErrorBoundary.jsx'
+import { SerieLineChartDatosTabla } from '../components/SerieLineChartDatosTabla.jsx'
 
 async function fetchPrediccionesBundle({
   prediccionesQuery,
@@ -92,6 +95,7 @@ const MODELO_OPTS = [
   { value: 'estacional', label: 'Estacional (tendencia + mes calendario)' },
   { value: 'poisson', label: 'Poisson log-lineal' },
   { value: 'media_movil', label: 'Media móvil simple' },
+  { value: 'tres_sigma', label: 'Media ± 3 desviaciones estándar (μ±3σ)' },
   { value: 'arima', label: 'ARIMA (serie temporal, ≥12 meses)' },
   { value: 'sarima', label: 'SARIMA (estacional mensual, ≥24 meses)' },
 ]
@@ -270,6 +274,7 @@ const MODELO_CARGA_OPTS = [
   { value: 'estacional', label: 'Estacional (recomendado)' },
   { value: 'ols', label: 'OLS (tendencia)' },
   { value: 'media_movil', label: 'Media móvil simple' },
+  { value: 'tres_sigma', label: 'Media ± 3σ (μ±3σ)' },
   { value: 'arima', label: 'ARIMA (≥12 meses)' },
   { value: 'sarima', label: 'SARIMA (≥24 meses)' },
 ]
@@ -344,16 +349,16 @@ function buildProporcionLineData(serieHistorica, proyeccion) {
 }
 
 function buildPrediccionesLineData(serieHistorica, proyeccion) {
-  const h = (serieHistorica || []).map((r) => ({
+  const mapRow = (r, isProyeccion) => ({
     mes: r.mes_etiqueta,
-    observados: serieObservados(r),
+    observados: isProyeccion ? null : serieObservados(r),
     ajuste: serieAjuste(r),
-  }))
-  const pr = (proyeccion || []).map((r) => ({
-    mes: r.mes_etiqueta,
-    observados: null,
-    ajuste: serieAjuste(r),
-  }))
+    bandaInf: r.banda_inf_3sigma ?? null,
+    bandaSup: r.banda_sup_3sigma ?? null,
+    fuera3sigma: isProyeccion ? null : r.fuera_3sigma === true,
+  })
+  const h = (serieHistorica || []).map((r) => mapRow(r, false))
+  const pr = (proyeccion || []).map((r) => mapRow(r, true))
   return [...h, ...pr]
 }
 
@@ -361,13 +366,14 @@ function modeloLegendLabel(modelo) {
   if (modelo === 'estacional') return 'Modelo estacional + extrapolación'
   if (modelo === 'poisson') return 'Modelo Poisson + extrapolación'
   if (modelo === 'media_movil') return 'Media móvil + extrapolación'
+  if (modelo === 'tres_sigma') return 'Media histórica (μ) + extrapolación'
   if (modelo === 'arima') return 'ARIMA + extrapolación'
   if (modelo === 'sarima') return 'SARIMA + extrapolación'
   return 'Tendencia OLS + extrapolación'
 }
 
 function minMesesModelo(modelo, ventanaMeses) {
-  if (modelo === 'ols') return 'dos'
+  if (modelo === 'ols' || modelo === 'tres_sigma') return 'dos'
   if (modelo === 'logit_offset' || modelo === 'ratio_compuesto') return 'tres'
   if (modelo === 'media_movil' && ventanaMeses) return String(ventanaMeses)
   if (modelo === 'arima') return '12'
@@ -1179,6 +1185,11 @@ function PrediccionesFiltrosGuia() {
                 extrapolar tendencias fuertes. Requiere al menos k meses en el ajuste.
               </li>
               <li>
+                <strong>Media ± 3σ (μ±3σ)</strong> — proyección constante = media del periodo; bandas de control en
+                ±3 desviaciones estándar. Sirve para detectar meses atípicos (puntos rojos fuera de la banda) y como
+                línea base simple. No captura tendencia ni estacionalidad.
+              </li>
+              <li>
                 <strong>ARIMA</strong> — modela la dependencia temporal mes a mes (memoria de corto plazo y tendencia
                 con diferenciación). Requiere al menos <strong>12 meses</strong> con datos en el rango. Útil cuando OLS
                 o la media móvil no capturan bien la dinámica de la serie.
@@ -1199,15 +1210,16 @@ function PrediccionesFiltrosGuia() {
           </li>
           <li>
             <strong>Carga territorial:</strong> <strong>Estacional</strong> (recomendado) si proyecta
-            varios meses y espera estacionalidad; <strong>OLS</strong> para tendencia lineal de incidentes por
+            varios meses y espera estacionalidad; <strong>μ±3σ</strong> como línea base (media por territorio);{' '}
+            <strong>OLS</strong> para tendencia lineal de incidentes por
             territorio; <strong>Media móvil</strong> para un escenario conservador basado en el tramo reciente;{' '}
             <strong>ARIMA</strong> o <strong>SARIMA</strong> con los mismos mínimos de historia que en la proyección
             mensual.
           </li>
           <li>
-            <strong>Patrones día×hora y día de semana:</strong> el modelo define el total a
-            repartir; la forma del mapa sale del historial. Use <strong>Estacional</strong> por defecto.
-            Si cambia el modelo y la franja líder no se mueve, es habitual: cambia la escala, no el ranking.
+            <strong>Patrones día×hora y día de semana:</strong> el modelo del bloque 1 define el total a
+            repartir; la forma del mapa sale del historial. Hereda el modelo elegido en la sección 1
+            (p. ej. SARIMA, estacional o μ±3σ).
           </li>
           <li>
             <strong>Prioridad territorial (P05):</strong> el componente «tendencia» del índice usa <strong>OLS</strong> fijo
@@ -1662,6 +1674,20 @@ function CoefResumen({ meta }) {
       </>
     )
   }
+  if (mod === 'tres_sigma') {
+    return (
+      <>
+        Media histórica μ ≈ <strong>{c.media_historica ?? '—'}</strong>, σ ≈{' '}
+        <strong>{c.desviacion_estandar ?? '—'}</strong>. Banda μ±3σ:{' '}
+        <strong>
+          {c.limite_inferior_3sigma ?? '—'} — {c.limite_superior_3sigma ?? '—'}
+        </strong>
+        . {c.meses_dentro_3sigma ?? '—'}/{meta?.n_meses_ajuste ?? '—'} meses dentro del intervalo (
+        {c.pct_meses_dentro_3sigma ?? '—'} %). {bondad}
+        <span className="muted"> (Proyección constante = media; meses fuera de la banda son atípicos.)</span>
+      </>
+    )
+  }
   if (mod === 'arima' || mod === 'sarima') {
     const orden = c.orden_arima?.join(',') ?? '—'
     const est = c.orden_estacional?.join(',') ?? null
@@ -1847,6 +1873,15 @@ export function Predicciones() {
     if (!bloqueGrafico?.serie_historica?.length) return []
     return buildPrediccionesLineData(bloqueGrafico.serie_historica, bloqueGrafico.proyeccion)
   }, [bloqueGrafico])
+
+  const mostrarBandas3Sigma = useMemo(
+    () =>
+      metaActiva?.modelo === 'tres_sigma' &&
+      prediccionesLineData.some((d) => d.bandaSup != null),
+    [metaActiva?.modelo, prediccionesLineData],
+  )
+
+  const PrediccionesChart = mostrarBandas3Sigma ? ComposedChart : LineChart
 
   const tieneSerie = Boolean(
     predicciones?.serie_historica?.length || predicciones?.series_por_clase?.length,
@@ -2574,77 +2609,122 @@ export function Predicciones() {
             </>
           )}
           <div className="chart-box chart-box-tall">
-            <ResponsiveContainer width="100%" height={prediccionesChartHeight}>
-              <LineChart
-                data={prediccionesLineData}
-                margin={{
-                  top: chartLayoutCompact ? 40 : 48,
-                  right: chartLayoutCompact ? 6 : 16,
-                  left: chartLayoutCompact ? 4 : 12,
-                  bottom: chartLayoutCompact ? 36 : 44,
-                }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis
-                  dataKey="mes"
-                  tick={{ fontSize: chartLayoutCompact ? 9 : 11 }}
-                  angle={prediccionesLineData.length > 10 ? -28 : 0}
-                  textAnchor={prediccionesLineData.length > 10 ? 'end' : 'middle'}
-                  height={prediccionesLineData.length > 10 ? 52 : 36}
-                  interval={0}
-                  label={{
-                    value: 'Mes',
-                    position: 'bottom',
-                    offset: chartLayoutCompact ? 20 : 16,
-                    fontSize: chartLayoutCompact ? 11 : 12,
-                    fill: '#64748b',
+            <ChartWheelZoom height={prediccionesChartHeight}>
+              <ResponsiveContainer width="100%" height={prediccionesChartHeight}>
+                <PrediccionesChart
+                  data={prediccionesLineData}
+                  margin={{
+                    top: chartLayoutCompact ? 40 : 48,
+                    right: chartLayoutCompact ? 6 : 16,
+                    left: chartLayoutCompact ? 4 : 12,
+                    bottom: chartLayoutCompact ? 36 : 44,
                   }}
-                />
-                <YAxis
-                  allowDecimals={false}
-                  tick={{ fontSize: chartLayoutCompact ? 9 : 11 }}
-                  width={yAxisTickWidth}
-                  label={{
-                    value: `${metaActiva.variable_etiqueta || 'Conteo'} (mensual)`,
-                    angle: -90,
-                    position: 'left',
-                    offset: chartLayoutCompact ? 6 : 10,
-                    style: {
-                      textAnchor: 'middle',
-                      fontSize: chartLayoutCompact ? 10 : 12,
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis
+                    dataKey="mes"
+                    tick={{ fontSize: chartLayoutCompact ? 9 : 11 }}
+                    angle={prediccionesLineData.length > 10 ? -28 : 0}
+                    textAnchor={prediccionesLineData.length > 10 ? 'end' : 'middle'}
+                    height={prediccionesLineData.length > 10 ? 52 : 36}
+                    interval={0}
+                    label={{
+                      value: 'Mes',
+                      position: 'bottom',
+                      offset: chartLayoutCompact ? 20 : 16,
+                      fontSize: chartLayoutCompact ? 11 : 12,
                       fill: '#64748b',
-                    },
-                  }}
-                />
-                <Tooltip
-                  formatter={(val, name) => [
-                    val != null ? Number(val).toLocaleString('es-CO') : '—',
-                    name,
-                  ]}
-                />
-                <Legend {...legendTopPropsResolved} />
-                <Line
-                  type="monotone"
-                  dataKey="observados"
-                  name="Observados (histórico)"
-                  stroke="#0f766e"
-                  strokeWidth={2.5}
-                  dot={{ r: 3 }}
-                  connectNulls={false}
-                />
-                <Line
-                  type="linear"
-                  dataKey="ajuste"
-                  name={modeloLegendLabel(metaActiva.modelo)}
-                  stroke="#c2410c"
-                  strokeWidth={2}
-                  strokeDasharray="6 4"
-                  dot={{ r: 2 }}
-                  connectNulls
-                />
-              </LineChart>
-            </ResponsiveContainer>
+                    }}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={{ fontSize: chartLayoutCompact ? 9 : 11 }}
+                    width={yAxisTickWidth}
+                    label={{
+                      value: `${metaActiva.variable_etiqueta || 'Conteo'} (mensual)`,
+                      angle: -90,
+                      position: 'left',
+                      offset: chartLayoutCompact ? 6 : 10,
+                      style: {
+                        textAnchor: 'middle',
+                        fontSize: chartLayoutCompact ? 10 : 12,
+                        fill: '#64748b',
+                      },
+                    }}
+                  />
+                  <Tooltip
+                    {...wheelZoomTooltipProps}
+                    content={(props) => (
+                      <WheelZoomTooltip
+                        {...props}
+                        formatter={(val, name) => [
+                          val != null ? Number(val).toLocaleString('es-CO') : '—',
+                          name,
+                        ]}
+                      />
+                    )}
+                  />
+                  <Legend {...legendTopPropsResolved} />
+                  {mostrarBandas3Sigma ? (
+                    <Area
+                      type="monotone"
+                      dataKey="bandaSup"
+                      name="Banda μ±3σ"
+                      baseLine={(entry) => entry.bandaInf}
+                      stroke="#93c5fd"
+                      strokeWidth={1}
+                      strokeDasharray="4 3"
+                      fill="#dbeafe"
+                      fillOpacity={0.45}
+                      connectNulls
+                      isAnimationActive={false}
+                    />
+                  ) : null}
+                  <Line
+                    type="monotone"
+                    dataKey="observados"
+                    name="Observados (histórico)"
+                    stroke="#0f766e"
+                    strokeWidth={2.5}
+                    dot={(props) => {
+                      const { cx, cy, payload } = props
+                      if (cx == null || cy == null) return null
+                      const fuera = payload?.fuera3sigma === true
+                      return (
+                        <circle
+                          cx={cx}
+                          cy={cy}
+                          r={fuera ? 4 : 3}
+                          fill={fuera ? '#dc2626' : '#0f766e'}
+                          stroke={fuera ? '#991b1b' : '#0f766e'}
+                          strokeWidth={fuera ? 2 : 1}
+                        />
+                      )
+                    }}
+                    connectNulls={false}
+                  />
+                  <Line
+                    type="linear"
+                    dataKey="ajuste"
+                    name={modeloLegendLabel(metaActiva.modelo)}
+                    stroke="#c2410c"
+                    strokeWidth={2}
+                    strokeDasharray="6 4"
+                    dot={{ r: 2 }}
+                    connectNulls
+                  />
+                </PrediccionesChart>
+              </ResponsiveContainer>
+            </ChartWheelZoom>
           </div>
+          {prediccionesLineData.length > 0 ? (
+            <SerieLineChartDatosTabla
+              data={prediccionesLineData}
+              variant="conteo"
+              variableLabel={metaActiva?.variable_etiqueta || 'Observados'}
+              showBandas3Sigma={mostrarBandas3Sigma}
+            />
+          ) : null}
         </section>
       )}
 
@@ -3107,64 +3187,94 @@ export function Predicciones() {
         )}
         {proporcionLineData.length > 0 && (
           <div className="chart-wrap">
-            <ResponsiveContainer width="100%" height={prediccionesChartHeight}>
-              <ComposedChart data={proporcionLineData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
-                <YAxis
-                  domain={[0, 'auto']}
-                  tickFormatter={(v) => `${v}%`}
-                  width={yAxisTickWidth}
-                />
-                <Tooltip
-                  formatter={(v, name) =>
-                    v != null
-                      ? [`${v}%`, name]
-                      : ['—', name]
-                  }
-                />
-                <Legend {...legendTopPropsResolved} />
-                <Area
-                  type="monotone"
-                  dataKey="bandaSup"
-                  name="Banda sup. (~95 %)"
-                  stroke="none"
-                  fill="#fecaca"
-                  fillOpacity={0.35}
-                  connectNulls={false}
-                  legendType="none"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="bandaInf"
-                  name="Banda inf."
-                  stroke="none"
-                  fill="#ffffff"
-                  fillOpacity={1}
-                  connectNulls={false}
-                  legendType="none"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="pct"
-                  name="% observado"
-                  stroke="#2563eb"
-                  dot={{ r: 3 }}
-                  connectNulls={false}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="ajuste"
-                  name="Ajuste / proyección %"
-                  stroke="#dc2626"
-                  strokeDasharray="6 4"
-                  dot={{ r: 2 }}
-                  connectNulls={false}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
+            <ChartWheelZoom height={prediccionesChartHeight}>
+              <ResponsiveContainer width="100%" height={prediccionesChartHeight}>
+                <ComposedChart
+                  data={proporcionLineData}
+                  margin={{
+                    top: 48,
+                    right: 16,
+                    left: 12,
+                    bottom: 44,
+                  }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="mes"
+                    tick={{ fontSize: 11 }}
+                    angle={proporcionLineData.length > 10 ? -28 : 0}
+                    textAnchor={proporcionLineData.length > 10 ? 'end' : 'middle'}
+                    height={proporcionLineData.length > 10 ? 52 : 36}
+                    interval={0}
+                  />
+                  <YAxis
+                    domain={[0, 'auto']}
+                    tickFormatter={(v) => `${v}%`}
+                    width={yAxisTickWidth}
+                  />
+                  <Tooltip
+                    {...wheelZoomTooltipProps}
+                    content={(props) => (
+                      <WheelZoomTooltip
+                        {...props}
+                        formatter={(v, name) =>
+                          v != null
+                            ? [`${v}%`, name]
+                            : ['—', name]
+                        }
+                      />
+                    )}
+                  />
+                  <Legend {...legendTopPropsResolved} />
+                  <Area
+                    type="monotone"
+                    dataKey="bandaSup"
+                    name="Banda sup. (~95 %)"
+                    stroke="none"
+                    fill="#fecaca"
+                    fillOpacity={0.35}
+                    connectNulls={false}
+                    legendType="none"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="bandaInf"
+                    name="Banda inf."
+                    stroke="none"
+                    fill="#ffffff"
+                    fillOpacity={1}
+                    connectNulls={false}
+                    legendType="none"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="pct"
+                    name="% observado"
+                    stroke="#2563eb"
+                    dot={{ r: 3 }}
+                    connectNulls={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="ajuste"
+                    name="Ajuste / proyección %"
+                    stroke="#dc2626"
+                    strokeDasharray="6 4"
+                    dot={{ r: 2 }}
+                    connectNulls={false}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </ChartWheelZoom>
           </div>
         )}
+        {proporcionLineData.length > 0 ? (
+          <SerieLineChartDatosTabla
+            data={proporcionLineData}
+            variant="proporcion"
+            caption="Datos mes a mes (% fatales observado y ajuste / proyección)"
+          />
+        ) : null}
       </section>
 
       <section className="panel predicciones-seccion patrones-seccion-controles">

@@ -242,3 +242,50 @@ def test_holdout_desactivado():
             evaluar_holdout=False,
         )
     assert "holdout" not in p["meta"]
+
+
+def test_tres_sigma_media_constante_y_bandas():
+    act = {
+        "2021-01": 100,
+        "2021-02": 102,
+        "2021-03": 98,
+        "2021-04": 101,
+    }
+    with patch("dashboard.predicciones_mensuales._query_mensual_valores", return_value=act):
+        p = build_predicciones_mensuales_payload(
+            date(2021, 1, 1),
+            date(2021, 4, 30),
+            FiltrosKpi(),
+            2,
+            modelo="tres_sigma",
+        )
+    assert p["meta"]["modelo"] == "tres_sigma"
+    assert p["meta"]["sin_modelo"] is False
+    c = p["meta"]["coeficientes"]
+    assert c["media_historica"] == 100.25
+    assert c["desviacion_estandar"] > 0
+    assert c["limite_inferior_3sigma"] == round(max(0.0, c["media_historica"] - 3 * c["desviacion_estandar"]), 2)
+    assert c["limite_superior_3sigma"] == round(c["media_historica"] + 3 * c["desviacion_estandar"], 2)
+    for row in p["serie_historica"]:
+        assert row["ajuste_modelo"] == c["media_historica"]
+        assert row["banda_inf_3sigma"] == c["limite_inferior_3sigma"]
+        assert row["banda_sup_3sigma"] == c["limite_superior_3sigma"]
+    assert len(p["proyeccion"]) == 2
+    assert p["proyeccion"][0]["incidentes_proyectados"] == c["media_historica"]
+    assert p["proyeccion"][0]["banda_sup_3sigma"] == c["limite_superior_3sigma"]
+
+
+def test_tres_sigma_holdout():
+    act = {f"2021-{m:02d}": 100 + (m % 3) for m in range(1, 13)}
+    with patch("dashboard.predicciones_mensuales._query_mensual_valores", return_value=act):
+        p = build_predicciones_mensuales_payload(
+            date(2021, 1, 1),
+            date(2021, 12, 31),
+            FiltrosKpi(),
+            1,
+            modelo="tres_sigma",
+            holdout_meses=3,
+        )
+    h = p["meta"]["holdout"]
+    assert h["activo"] is True
+    assert len(h["meses_prueba"]) == 3

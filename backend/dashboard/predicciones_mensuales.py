@@ -2,7 +2,7 @@
 Proyección descriptiva mensual (Fase A: P02–P04, P06).
 
 Modelos: OLS lineal (P01), tendencia + estacionalidad por mes calendario (P02),
-Poisson log-lineal (P04), media móvil simple (P05). Variables: incidentes, víctimas,
+Poisson log-lineal (P04), media móvil simple (P05), criterio μ±3σ (media + bandas). Variables: incidentes, víctimas,
 víctimas fatales (P03).
 Desglose opcional por clase de incidente (P06).
 """
@@ -16,6 +16,16 @@ from typing import Any, Literal
 from django.db import connection
 
 from .evolucion_mensual import _etiqueta_mes_ym, _iter_meses_clave
+from .estadistica_series import (
+    mape_pct as _mape_pct,
+    ols_intercept_slope as _ols_intercept_slope,
+    rmse as _rmse,
+    r_squared as _r_squared,
+    sample_mean,
+    sample_std,
+    solve_design_ols as _solve_design_ols,
+    solve_weighted_least_squares as _normal_equations_solve,
+)
 from .kpis import FiltrosKpi, _fatal_sql_expr
 from .territorio_sql import (
     append_filtros_territoriales,
@@ -24,7 +34,9 @@ from .territorio_sql import (
     punto_critico_serie_sql,
 )
 
-ModeloPred = Literal["ols", "estacional", "poisson", "media_movil", "arima", "sarima"]
+ModeloPred = Literal[
+    "ols", "estacional", "poisson", "media_movil", "arima", "sarima", "tres_sigma"
+]
 VariablePred = Literal["incidentes", "victimas", "victimas_fatales"]
 
 MA_VENTANA_DEFAULT = 3
@@ -56,7 +68,9 @@ def parse_arima_opciones(qs) -> ArimaOpciones:
     return ArimaOpciones(order=order, seasonal_order=seasonal)
 
 
-MODELOS_PROYECCION_CARGA = frozenset({"ols", "estacional", "media_movil", "arima", "sarima"})
+MODELOS_PROYECCION_CARGA = frozenset(
+    {"ols", "estacional", "media_movil", "arima", "sarima", "tres_sigma"}
+)
 
 
 def normalize_modelo_proyeccion(modelo: str, default: ModeloPred = "estacional") -> ModeloPred:
@@ -72,6 +86,11 @@ def normalize_modelo_proyeccion(modelo: str, default: ModeloPred = "estacional")
         "arima": "arima",
         "sarima": "sarima",
         "seasonal_arima": "sarima",
+        "tres_sigma": "tres_sigma",
+        "3_sigma": "tres_sigma",
+        "3sigma": "tres_sigma",
+        "tres_desviaciones": "tres_sigma",
+        "media_3sigma": "tres_sigma",
     }
     if raw in aliases:
         return aliases[raw]
@@ -192,44 +211,6 @@ def _query_clases_con_datos(inicio: date, fin: date, filtros: FiltrosKpi) -> lis
     return rows
 
 
-def _ols_intercept_slope(xs: list[float], ys: list[float]) -> tuple[float, float]:
-    n = len(xs)
-    sum_x = sum(xs)
-    sum_y = sum(ys)
-    sum_xx = sum(x * x for x in xs)
-    sum_xy = sum(x * y for x, y in zip(xs, ys))
-    denom = n * sum_xx - sum_x * sum_x
-    if abs(denom) < 1e-15:
-        return sum_y / n, 0.0
-    b = (n * sum_xy - sum_x * sum_y) / denom
-    a = (sum_y - b * sum_x) / n
-    return a, b
-
-
-def _r_squared(ys: list[float], yhat: list[float]) -> float:
-    if not ys or len(ys) != len(yhat):
-        return 0.0
-    mean_y = sum(ys) / len(ys)
-    ss_tot = sum((y - mean_y) ** 2 for y in ys)
-    if ss_tot < 1e-15:
-        return 1.0
-    ss_res = sum((y - yh) ** 2 for y, yh in zip(ys, yhat))
-    return max(0.0, min(1.0, 1.0 - ss_res / ss_tot))
-
-
-def _rmse(ys: list[float], yhat: list[float]) -> float:
-    if not ys:
-        return 0.0
-    return math.sqrt(sum((y - yh) ** 2 for y, yh in zip(ys, yhat)) / len(ys))
-
-
-def _mape_pct(ys: list[float], yhat: list[float]) -> float | None:
-    errs = [abs(y - yh) / y for y, yh in zip(ys, yhat) if y > 0]
-    if not errs:
-        return None
-    return 100.0 * sum(errs) / len(errs)
-
-
 def _interpretacion_bondad(r2: float, mape: float | None) -> dict[str, str]:
     """Texto corto según umbrales de R² (series mensuales de conteo)."""
     if r2 >= 0.55:
@@ -317,65 +298,12 @@ def _design_forecast_row(t_index: int, month: int, year: int, ctx: dict[str, Any
     return row
 
 
-def _solve_design_ols(x: list[list[float]], ys: list[float]) -> list[float] | None:
-    n = len(ys)
-    p = len(x[0])
-    return _solve_linear_system(
-        [[sum(x[k][c] * x[k][r] for k in range(n)) for r in range(p)] for c in range(p)],
-        [sum(x[k][c] * ys[k] for k in range(n)) for c in range(p)],
-    )
-
-
 def _predict_linear(beta: list[float], row: list[float]) -> float:
     return max(0.0, sum(b * xv for b, xv in zip(beta, row)))
 
 
-def _solve_linear_system(a: list[list[float]], b: list[float]) -> list[float] | None:
-    """Eliminación gaussiana; a es n×n, b longitud n."""
-    n = len(b)
-    if n == 0:
-        return []
-    mat = [row[:] + [bv] for row, bv in zip(a, b)]
-    for col in range(n):
-        pivot = col
-        for r in range(col + 1, n):
-            if abs(mat[r][col]) > abs(mat[pivot][col]):
-                pivot = r
-        if abs(mat[pivot][col]) < 1e-12:
-            return None
-        mat[col], mat[pivot] = mat[pivot], mat[col]
-        div = mat[col][col]
-        for j in range(col, n + 1):
-            mat[col][j] /= div
-        for r in range(n):
-            if r == col:
-                continue
-            factor = mat[r][col]
-            for j in range(col, n + 1):
-                mat[r][j] -= factor * mat[col][j]
-    return [mat[i][n] for i in range(n)]
-
-
 def _mat_vec_mul(a: list[list[float]], x: list[float]) -> list[float]:
     return [sum(ai * xj for ai, xj in zip(row, x)) for row in a]
-
-
-def _normal_equations_solve(
-    x: list[list[float]],
-    y_work: list[float],
-    weights: list[float],
-) -> list[float] | None:
-    n = len(y_work)
-    p = len(x[0])
-    a = [[0.0] * p for _ in range(p)]
-    b = [0.0] * p
-    for k in range(n):
-        w = weights[k]
-        for c in range(p):
-            b[c] += w * x[k][c] * y_work[k]
-            for r in range(p):
-                a[c][r] += w * x[k][c] * x[k][r]
-    return _solve_linear_system(a, b)
 
 
 def _clamp_beta(beta: list[float]) -> list[float]:
@@ -463,6 +391,51 @@ def _fit_media_movil(
         **_metricas_ajuste(ys, yhat, 1),
     }
     return yhat, [last_ma, float(k)], coef
+
+
+def _fit_tres_sigma(serie: _SerieMensual) -> tuple[list[float], list[float], dict[str, Any]]:
+    """
+    Criterio μ±3σ: proyección = media del periodo de ajuste;
+    bandas de control en ±3 desviaciones estándar muestrales.
+    """
+    ys = [float(v) for v in serie.valores]
+    n = len(ys)
+    media = sample_mean(ys)
+    desv = sample_std(ys)
+    lim_inf = max(0.0, media - 3.0 * desv)
+    lim_sup = media + 3.0 * desv
+    yhat = [media] * n
+    dentro = sum(1 for y in ys if lim_inf <= y <= lim_sup)
+    pct_dentro = round(100.0 * dentro / n, 2) if n else 0.0
+    if pct_dentro >= 95:
+        nivel = "bueno"
+    elif pct_dentro >= 85:
+        nivel = "moderado"
+    else:
+        nivel = "bajo"
+    texto = (
+        f"Media histórica {media:.1f}; desviación estándar {desv:.1f}. "
+        f"{dentro} de {n} meses ({pct_dentro:g} %) caen dentro de μ±3σ "
+        f"[{lim_inf:.1f}, {lim_sup:.1f}]. Los meses fuera del intervalo son atípicos "
+        "respecto al periodo de ajuste."
+    )
+    coef = {
+        "media_historica": round(media, 4),
+        "desviacion_estandar": round(desv, 4),
+        "limite_inferior_3sigma": round(lim_inf, 2),
+        "limite_superior_3sigma": round(lim_sup, 2),
+        "meses_dentro_3sigma": dentro,
+        "meses_fuera_3sigma": n - dentro,
+        "pct_meses_dentro_3sigma": pct_dentro,
+        "nota": (
+            "Proyección constante = media del ajuste; bandas μ±3σ delimitan variación "
+            "estadística habitual (~99,7 % bajo normalidad)."
+        ),
+        **_metricas_ajuste(ys, yhat, 2),
+        "bondad_nivel": nivel,
+        "interpretacion_bondad": texto,
+    }
+    return yhat, [media, desv], coef
 
 
 def _fit_poisson(serie: _SerieMensual) -> tuple[list[float], list[float], dict[str, Any]]:
@@ -559,6 +532,8 @@ def _forecast_values(
             y = max(0.0, y)
         elif modelo == "media_movil" and beta:
             y = max(0.0, beta[0])
+        elif modelo == "tres_sigma" and beta:
+            y = max(0.0, beta[0])
         else:
             y = yhat_hist[-1] if yhat_hist else 0.0
         fore.append(round(y, 2))
@@ -598,6 +573,9 @@ def _forecast_from_train(
     if modelo == "media_movil":
         yhat, beta, _ = _fit_media_movil(serie, ventana)
         return _forecast_values("media_movil", serie, beta, hm, yhat)
+    if modelo == "tres_sigma":
+        yhat, beta, _ = _fit_tres_sigma(serie)
+        return _forecast_values("tres_sigma", serie, beta, hm, yhat)
     if modelo in ("arima", "sarima"):
         from .modelos_arima import ajustar_y_proyectar_arima
 
@@ -756,26 +734,50 @@ def _evaluar_holdout(
     }
 
 
-def _row_historica(mk: str, obs: int, ajuste: float | None, variable: VariablePred) -> dict[str, Any]:
+def _row_historica(
+    mk: str,
+    obs: int,
+    ajuste: float | None,
+    variable: VariablePred,
+    *,
+    bandas_3sigma: tuple[float | None, float | None] | None = None,
+) -> dict[str, Any]:
     row: dict[str, Any] = {
         "mes_clave": mk,
         "mes_etiqueta": _etiqueta_mes_ym(mk),
         "observados": obs,
         "ajuste_modelo": ajuste,
     }
+    if bandas_3sigma is not None:
+        lim_inf, lim_sup = bandas_3sigma
+        if lim_inf is not None and lim_sup is not None:
+            row["banda_inf_3sigma"] = lim_inf
+            row["banda_sup_3sigma"] = lim_sup
+            row["fuera_3sigma"] = obs < lim_inf or obs > lim_sup
     if variable == "incidentes":
         row["incidentes_observados"] = obs
         row["incidentes_ajuste_lineal"] = ajuste
     return row
 
 
-def _row_proyeccion(mk: str, valor: float, variable: VariablePred) -> dict[str, Any]:
+def _row_proyeccion(
+    mk: str,
+    valor: float,
+    variable: VariablePred,
+    *,
+    bandas_3sigma: tuple[float | None, float | None] | None = None,
+) -> dict[str, Any]:
     row: dict[str, Any] = {
         "mes_clave": mk,
         "mes_etiqueta": _etiqueta_mes_ym(mk),
         "proyectados": valor,
         "ajuste_modelo": valor,
     }
+    if bandas_3sigma is not None:
+        lim_inf, lim_sup = bandas_3sigma
+        if lim_inf is not None and lim_sup is not None:
+            row["banda_inf_3sigma"] = lim_inf
+            row["banda_sup_3sigma"] = lim_sup
     if variable == "incidentes":
         row["incidentes_proyectados"] = valor
         row["incidentes_ajuste_lineal"] = valor
@@ -799,6 +801,12 @@ def _metodo_texto(modelo: ModeloPred) -> str:
             "Media móvil simple (ventana k meses): el ajuste histórico es el promedio "
             "de los últimos k meses incluyendo el mes actual; la proyección repite la media "
             "de los k meses más recientes del ajuste."
+        )
+    if modelo == "tres_sigma":
+        return (
+            "Criterio de tres desviaciones estándar (μ±3σ): la proyección repite la media "
+            "muestral del periodo de ajuste; las bandas delimitan variación habitual "
+            "estadística (≈99,7 % bajo normalidad)."
         )
     if modelo == "arima":
         return (
@@ -831,6 +839,13 @@ def _limitaciones_texto(modelo: ModeloPred, variable: VariablePred) -> str:
             + " La media móvil no modela tendencia ni estacionalidad; suaviza la serie "
             "y asume persistencia del nivel reciente."
         )
+    if modelo == "tres_sigma":
+        return (
+            base
+            + " La proyección constante (media) no captura tendencia ni estacionalidad; "
+            "las bandas μ±3σ sirven para identificar meses atípicos, no como intervalo "
+            "de confianza formal de la predicción."
+        )
     if modelo == "arima":
         return (
             base
@@ -848,6 +863,8 @@ def _limitaciones_texto(modelo: ModeloPred, variable: VariablePred) -> str:
 
 def _min_meses_modelo(modelo: ModeloPred, ventana_ma: int = MA_VENTANA_DEFAULT) -> int:
     if modelo == "ols":
+        return 2
+    if modelo == "tres_sigma":
         return 2
     if modelo == "media_movil":
         return _clamp_ventana_ma(ventana_ma)
@@ -923,6 +940,10 @@ def _build_single(
             yhat_fit, beta, coeficientes = _fit_media_movil(serie_fit, ventana)
             for i, mk in enumerate(meses_fit):
                 yhat_by_mes[mk] = yhat_fit[i]
+        elif modelo == "tres_sigma":
+            yhat_fit, beta, coeficientes = _fit_tres_sigma(serie_fit)
+            for i, mk in enumerate(meses_fit):
+                yhat_by_mes[mk] = yhat_fit[i]
         elif modelo in ("arima", "sarima"):
             from .modelos_arima import ajustar_y_proyectar_arima
 
@@ -946,9 +967,17 @@ def _build_single(
                 yhat_by_mes[mk] = yhat_fit[i]
 
     if not sin_modelo:
+        bandas_3sigma: tuple[float | None, float | None] | None = None
+        if modelo == "tres_sigma" and coeficientes:
+            bandas_3sigma = (
+                coeficientes.get("limite_inferior_3sigma"),
+                coeficientes.get("limite_superior_3sigma"),
+            )
         for i, mk in enumerate(meses):
             ajuste = round(yhat_by_mes[mk], 2) if mk in yhat_by_mes else None
-            serie_historica.append(_row_historica(mk, valores[i], ajuste, variable))
+            serie_historica.append(
+                _row_historica(mk, valores[i], ajuste, variable, bandas_3sigma=bandas_3sigma)
+            )
 
         if fore_direct is not None:
             fore = fore_direct
@@ -961,7 +990,9 @@ def _build_single(
         mk = meses[-1]
         for yf in fore:
             mk = _next_month_clave(mk)
-            proyeccion.append(_row_proyeccion(mk, yf, variable))
+            proyeccion.append(
+                _row_proyeccion(mk, yf, variable, bandas_3sigma=bandas_3sigma)
+            )
     else:
         for i, mk in enumerate(meses):
             serie_historica.append(_row_historica(mk, valores[i], None, variable))
@@ -1060,7 +1091,7 @@ def build_predicciones_mensuales_payload(
     filtros = filtros or FiltrosKpi()
     mod: ModeloPred = (
         modelo
-        if modelo in ("ols", "estacional", "poisson", "media_movil", "arima", "sarima")
+        if modelo in ("ols", "estacional", "poisson", "media_movil", "arima", "sarima", "tres_sigma")
         else "ols"
     )
     ventana = _clamp_ventana_ma(ventana_ma)

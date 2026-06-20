@@ -24,6 +24,14 @@ import {
   fetchDashboardRangoFechas,
 } from '../api/client.js'
 import { GenerarReporteButton } from '../components/reportes/GenerarReporteButton.jsx'
+import { ChartWheelZoom } from '../components/ChartWheelZoom.jsx'
+import { WheelZoomTooltip, wheelZoomTooltipProps } from '../components/WheelZoomTooltip.jsx'
+import {
+  ComparativoCategoriasDatosTabla,
+  DiaSemanaComparativoDatosTabla,
+  EvolucionMensualDatosTabla,
+  PorHoraResumenDatosTabla,
+} from '../components/TableroChartDatosTabla.jsx'
 
 /** Cobertura aproximada del archivo `salida/Mede_Victimas_inci_depurado.xlsx` si falla la API de rango */
 const FECHAS_REF_MEDE = {
@@ -392,6 +400,11 @@ export function Dashboard() {
     }
   })
 
+  const matrizPorHora = useMemo(
+    () => aggregateIncidentesPorHora(matrizDiaHora?.serie || []),
+    [matrizDiaHora],
+  )
+
   const buildHeatmapGrid = (key) => {
     const grid = Array.from({ length: 7 }, () => Array(24).fill(0))
     ;(matrizDiaHora?.serie || []).forEach((cell) => {
@@ -697,105 +710,107 @@ export function Dashboard() {
                 cada columna, abajo <strong>incidentes</strong> y arriba <strong>víctimas</strong>.
               </p>
               <div className="chart-box chart-box-tall">
-                <ResponsiveContainer width="100%" height={barChartCompareHeight}>
-                  <BarChart
-                    data={evolucion.serie}
-                    margin={barChartCompareMargin}
-                    barCategoryGap="18%"
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                    <XAxis
-                      dataKey="mes_etiqueta"
-                      tick={{ fontSize: chartLayoutCompact ? 9 : 11 }}
-                      angle={
-                        chartLayoutCompact
-                          ? evolucion.serie.length > 4
-                            ? -32
-                            : 0
-                          : evolucion.serie.length > 8
-                            ? -30
-                            : 0
-                      }
-                      textAnchor={
-                        chartLayoutCompact
-                          ? evolucion.serie.length > 4
-                            ? 'end'
-                            : 'middle'
-                          : evolucion.serie.length > 8
-                            ? 'end'
-                            : 'middle'
-                      }
-                      height={
-                        chartLayoutCompact
-                          ? evolucion.serie.length > 4
-                            ? 48
-                            : 32
-                          : evolucion.serie.length > 8
-                            ? 52
-                            : 36
-                      }
-                      interval={0}
-                      label={{
-                        value: 'Mes (periodo seleccionado)',
-                        position: 'bottom',
-                        offset:
-                          chartLayoutCompact && evolucion.serie.length > 4
-                            ? 22
+                <ChartWheelZoom height={barChartCompareHeight}>
+                  <ResponsiveContainer width="100%" height={barChartCompareHeight}>
+                    <BarChart
+                      data={evolucion.serie}
+                      margin={barChartCompareMargin}
+                      barCategoryGap="18%"
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                      <XAxis
+                        dataKey="mes_etiqueta"
+                        tick={{ fontSize: chartLayoutCompact ? 9 : 11 }}
+                        angle={
+                          chartLayoutCompact
+                            ? evolucion.serie.length > 4
+                              ? -32
+                              : 0
                             : evolucion.serie.length > 8
-                              ? 28
-                              : 14,
-                        fontSize: chartLayoutCompact ? 11 : 12,
-                        fill: '#64748b',
-                      }}
-                    />
-                    <YAxis
-                      allowDecimals={false}
-                      tick={{ fontSize: chartLayoutCompact ? 9 : 11 }}
-                      width={yAxisTickWidth}
-                      label={{
-                        value: 'Cantidad (barras apiladas)',
-                        angle: -90,
-                        position: 'left',
-                        offset: chartLayoutCompact ? 6 : 10,
-                        style: {
-                          textAnchor: 'middle',
-                          fontSize: chartLayoutCompact ? 10 : 12,
+                              ? -30
+                              : 0
+                        }
+                        textAnchor={
+                          (chartLayoutCompact ? evolucion.serie.length > 4 : evolucion.serie.length > 8)
+                            ? 'end'
+                            : 'middle'
+                        }
+                        height={
+                          chartLayoutCompact
+                            ? evolucion.serie.length > 4
+                              ? 48
+                              : 32
+                            : evolucion.serie.length > 8
+                              ? 52
+                              : 36
+                        }
+                        interval={0}
+                        label={{
+                          value: 'Mes (periodo seleccionado)',
+                          position: 'bottom',
+                          offset:
+                            chartLayoutCompact && evolucion.serie.length > 4
+                              ? 22
+                              : evolucion.serie.length > 8
+                                ? 28
+                                : 14,
+                          fontSize: chartLayoutCompact ? 11 : 12,
                           fill: '#64748b',
-                        },
-                      }}
-                    />
-                    <Tooltip />
-                    <Legend {...legendTopPropsResolved} />
-                    <Bar
-                      stackId="act"
-                      dataKey="incidentes_periodo_actual"
-                      name="Incidentes (periodo actual)"
-                      fill="#0f766e"
-                      radius={[0, 0, 0, 0]}
-                    />
-                    <Bar
-                      stackId="act"
-                      dataKey="victimas_periodo_actual"
-                      name="Víctimas (periodo actual)"
-                      fill="#5eead4"
-                      radius={[4, 4, 0, 0]}
-                    />
-                    <Bar
-                      stackId="ant"
-                      dataKey="incidentes_periodo_anterior"
-                      name="Incidentes (año anterior)"
-                      fill="#475569"
-                    />
-                    <Bar
-                      stackId="ant"
-                      dataKey="victimas_periodo_anterior"
-                      name="Víctimas (año anterior)"
-                      fill="#cbd5e1"
-                      radius={[4, 4, 0, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
+                        }}
+                      />
+                      <YAxis
+                        allowDecimals={false}
+                        tick={{ fontSize: chartLayoutCompact ? 9 : 11 }}
+                        width={yAxisTickWidth}
+                        label={{
+                          value: 'Cantidad (barras apiladas)',
+                          angle: -90,
+                          position: 'left',
+                          offset: chartLayoutCompact ? 6 : 10,
+                          style: {
+                            textAnchor: 'middle',
+                            fontSize: chartLayoutCompact ? 10 : 12,
+                            fill: '#64748b',
+                          },
+                        }}
+                      />
+                      <Tooltip
+                        {...wheelZoomTooltipProps}
+                        content={(props) => <WheelZoomTooltip {...props} />}
+                      />
+                      <Legend {...legendTopPropsResolved} />
+                      <Bar
+                        stackId="act"
+                        dataKey="incidentes_periodo_actual"
+                        name="Incidentes (periodo actual)"
+                        fill="#0f766e"
+                        radius={[0, 0, 0, 0]}
+                      />
+                      <Bar
+                        stackId="act"
+                        dataKey="victimas_periodo_actual"
+                        name="Víctimas (periodo actual)"
+                        fill="#5eead4"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar
+                        stackId="ant"
+                        dataKey="incidentes_periodo_anterior"
+                        name="Incidentes (año anterior)"
+                        fill="#475569"
+                      />
+                      <Bar
+                        stackId="ant"
+                        dataKey="victimas_periodo_anterior"
+                        name="Víctimas (año anterior)"
+                        fill="#cbd5e1"
+                        radius={[4, 4, 0, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartWheelZoom>
               </div>
+              <EvolucionMensualDatosTabla serie={evolucion.serie} />
             </section>
           )}
 
@@ -893,6 +908,7 @@ export function Dashboard() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+              <DiaSemanaComparativoDatosTabla serie={diaSemana.serie} />
               <div className="risk-grid">
                 {diaSemana.serie.map((d) => {
                   const nivel = nivelCargaSemana(d)
@@ -953,9 +969,10 @@ export function Dashboard() {
                 const maxAct = Math.max(1, ...gridAct.flat())
                 const maxAnt = Math.max(1, ...gridAnt.flat())
                 const maxDelta = Math.max(1, ...gridDelta.flat().map((x) => Math.abs(x)))
-                const porHora = aggregateIncidentesPorHora(matrizDiaHora.serie)
 
                 if (!showMatrixHeatmaps) {
+                  const porHora = matrizPorHora
+                  const lineChartHeight = chartLayoutCompact ? 248 : 280
                   return (
                     <div className="matrix-mobile-stack">
                       <div className="matrix-mobile-reading muted small" role="note">
@@ -968,8 +985,8 @@ export function Dashboard() {
                         <p className="muted small matrix-mobile-hint">
                           Cada punto suma los incidentes de las 24 celdas (7 días × esa hora).
                         </p>
-                        <div className="chart-box" style={{ minHeight: chartLayoutCompact ? 260 : 280 }}>
-                          <ResponsiveContainer width="100%" height={chartLayoutCompact ? 248 : 280}>
+                        <ChartWheelZoom height={lineChartHeight}>
+                          <ResponsiveContainer width="100%" height={lineChartHeight}>
                             <LineChart
                               data={porHora}
                               margin={{
@@ -1008,11 +1025,17 @@ export function Dashboard() {
                                 }}
                               />
                               <Tooltip
-                                formatter={(val) => [
-                                  Number(val).toLocaleString('es-CO'),
-                                  '',
-                                ]}
-                                labelFormatter={(h) => `Hora ${h}:00`}
+                                {...wheelZoomTooltipProps}
+                                content={(props) => (
+                                  <WheelZoomTooltip
+                                    {...props}
+                                    formatter={(val) => [
+                                      Number(val).toLocaleString('es-CO'),
+                                      '',
+                                    ]}
+                                    labelFormatter={(h) => `Hora ${h}:00`}
+                                  />
+                                )}
                               />
                               <Legend
                                 {...legendTopPropsResolved}
@@ -1039,7 +1062,7 @@ export function Dashboard() {
                               />
                             </LineChart>
                           </ResponsiveContainer>
-                        </div>
+                        </ChartWheelZoom>
                       </div>
                       <div className="matrix-mobile-chart">
                         <h4 className="matrix-mobile-title">Diferencia por hora (actual − anterior)</h4>
@@ -1105,6 +1128,7 @@ export function Dashboard() {
                           </ResponsiveContainer>
                         </div>
                       </div>
+                      <PorHoraResumenDatosTabla data={porHora} />
                     </div>
                   )
                 }
@@ -1217,6 +1241,11 @@ export function Dashboard() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+              <ComparativoCategoriasDatosTabla
+                rows={claseIncidenteChart}
+                categoryLabel="Clase de incidente"
+                valueLabel="Incidentes"
+              />
             </section>
           )}
 

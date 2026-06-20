@@ -68,7 +68,9 @@ export function AuthProvider({ children }) {
     return u
   }, [])
 
-  const isAnalista = user?.perfil?.rol_codigo === 'analista'
+  const rolCodigo = user?.perfil?.rol_codigo
+  const isAdministrador = rolCodigo === 'administrador'
+  const isAnalista = rolCodigo === 'analista' || isAdministrador
 
   const value = useMemo(
     () => ({
@@ -79,9 +81,10 @@ export function AuthProvider({ children }) {
       logout,
       register,
       isAnalista,
+      isAdministrador,
       idleMs: IDLE_MS,
     }),
-    [user, loading, refresh, login, logout, register, isAnalista],
+    [user, loading, refresh, login, logout, register, isAnalista, isAdministrador],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

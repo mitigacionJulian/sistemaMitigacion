@@ -6,7 +6,7 @@ import { APP_NAME, APP_NAME_SHORT } from '../config/brand.js'
 const navClass = ({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')
 
 export function Layout() {
-  const { user, logout, isAnalista } = useAuth()
+  const { user, logout, isAnalista, isAdministrador } = useAuth()
   const location = useLocation()
   const [navOpen, setNavOpen] = useState(false)
 
@@ -69,6 +69,11 @@ export function Layout() {
           {(!user || isAnalista) && (
             <NavLink to="/predicciones" className={navClass} onClick={closeNav}>
               Predicciones
+            </NavLink>
+          )}
+          {isAdministrador && (
+            <NavLink to="/admin/usuarios" className={navClass} onClick={closeNav}>
+              Usuarios
             </NavLink>
           )}
           {!user && (

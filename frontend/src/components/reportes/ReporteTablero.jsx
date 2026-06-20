@@ -6,6 +6,12 @@ import {
   TableroMatrizHeatmaps,
 } from './TableroReportCharts.jsx'
 import {
+  ComparativoCategoriasDatosTabla,
+  DiaSemanaComparativoDatosTabla,
+  EvolucionMensualDatosTabla,
+} from '../TableroChartDatosTabla.jsx'
+import { mapClaseIncidenteChart, mapGravedadChart } from '../tablero/tableroChartUtils.js'
+import {
   formatReporteFechaCorta,
   formatReporteNumero,
   formatReporteVariacion,
@@ -152,6 +158,8 @@ export function ReporteTablero({ cuerpo }) {
           }
         >
           <TableroEvolucionChart evolucion={evolucion} />
+          <h3 className="reporte-tops-title">Datos del gráfico (mes a mes)</h3>
+          <EvolucionMensualDatosTabla serie={evolucion.serie} caption="" />
         </ReporteSection>
       )}
 
@@ -161,6 +169,8 @@ export function ReporteTablero({ cuerpo }) {
           hint="Mismas barras apiladas y semáforo de concentración que en el tablero interactivo."
         >
           <TableroDiaSemanaChart diaSemana={diaSemana} />
+          <h3 className="reporte-tops-title">Datos del gráfico (por día)</h3>
+          <DiaSemanaComparativoDatosTabla serie={diaSemana.serie} caption="" />
         </ReporteSection>
       )}
 
@@ -177,12 +187,26 @@ export function ReporteTablero({ cuerpo }) {
       {clase?.serie?.length > 0 && (
         <ReporteSection title="Incidentes por clase" hint="Barras horizontales comparando periodo actual y año anterior.">
           <TableroClaseIncidenteChart clase={clase} />
+          <h3 className="reporte-tops-title">Datos del gráfico</h3>
+          <ComparativoCategoriasDatosTabla
+            rows={mapClaseIncidenteChart(clase.serie)}
+            categoryLabel="Clase de incidente"
+            valueLabel="Incidentes"
+            caption=""
+          />
         </ReporteSection>
       )}
 
       {gravedad?.serie?.length > 0 && (
         <ReporteSection title="Víctimas por gravedad" hint="Distribución de víctimas por nivel de gravedad.">
           <TableroGravedadChart gravedad={gravedad} />
+          <h3 className="reporte-tops-title">Datos del gráfico</h3>
+          <ComparativoCategoriasDatosTabla
+            rows={mapGravedadChart(gravedad.serie)}
+            categoryLabel="Gravedad"
+            valueLabel="Víctimas"
+            caption=""
+          />
         </ReporteSection>
       )}
 

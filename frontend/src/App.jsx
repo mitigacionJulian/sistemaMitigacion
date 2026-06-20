@@ -10,8 +10,10 @@ import { Login } from './pages/Login.jsx'
 import { Register } from './pages/Register.jsx'
 import { RecoverPasswordGate } from './pages/RecoverPasswordGate.jsx'
 import { RequireAnalista } from './components/RequireAnalista.jsx'
+import { RequireAdministrador } from './components/RequireAdministrador.jsx'
 import { Agente } from './pages/Agente.jsx'
 import { ReportePreview } from './pages/ReportePreview.jsx'
+import { AdminUsuarios } from './pages/AdminUsuarios.jsx'
 
 const Predicciones = lazy(() =>
   import('./pages/Predicciones.jsx').then((m) => ({ default: m.Predicciones })),
@@ -45,6 +47,16 @@ export default function App() {
                 <RequireAnalista>
                   <ReportePreview />
                 </RequireAnalista>
+              }
+            />
+            <Route
+              path="admin/usuarios"
+              element={
+                <RequireAdministrador>
+                  <RouteErrorBoundary>
+                    <AdminUsuarios />
+                  </RouteErrorBoundary>
+                </RequireAdministrador>
               }
             />
             <Route path="login" element={<Login />} />

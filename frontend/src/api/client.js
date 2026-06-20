@@ -551,3 +551,60 @@ export async function fetchDashboardComunasGeojson(params = {}) {
   }
   return body
 }
+
+async function parseAdminResponse(r, fallbackError) {
+  if (r.status === 403) {
+    throw new Error('Se requiere rol administrador para gestionar usuarios.')
+  }
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({}))
+    const msg =
+      typeof body.detail === 'string'
+        ? body.detail
+        : formatFieldErrors(body) || fallbackError
+    throw new Error(msg)
+  }
+  if (r.status === 204) return null
+  return r.json()
+}
+
+export async function fetchAdminRoles() {
+  const r = await apiFetch('/admin/roles/')
+  return parseAdminResponse(r, 'No se pudieron cargar los roles.')
+}
+
+export async function fetchAdminUsuarios(params = {}) {
+  const qs = new URLSearchParams()
+  if (params.q) qs.set('q', params.q)
+  if (params.rol) qs.set('rol', params.rol)
+  if (params.activo != null) qs.set('activo', String(params.activo))
+  const suffix = qs.toString() ? `?${qs.toString()}` : ''
+  const r = await apiFetch(`/admin/usuarios/${suffix}`)
+  return parseAdminResponse(r, 'No se pudieron cargar los usuarios.')
+}
+
+export async function fetchAdminUsuario(id) {
+  const r = await apiFetch(`/admin/usuarios/${id}/`)
+  return parseAdminResponse(r, 'No se pudo cargar el usuario.')
+}
+
+export async function createAdminUsuario(payload) {
+  const r = await apiFetch('/admin/usuarios/', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return parseAdminResponse(r, 'No se pudo crear el usuario.')
+}
+
+export async function updateAdminUsuario(id, payload) {
+  const r = await apiFetch(`/admin/usuarios/${id}/`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+  return parseAdminResponse(r, 'No se pudo actualizar el usuario.')
+}
+
+export async function deleteAdminUsuario(id) {
+  const r = await apiFetch(`/admin/usuarios/${id}/`, { method: 'DELETE' })
+  return parseAdminResponse(r, 'No se pudo eliminar el usuario.')
+}

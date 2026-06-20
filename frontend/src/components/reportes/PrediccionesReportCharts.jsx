@@ -3,7 +3,6 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  LabelList,
   Legend,
   Line,
   LineChart,
@@ -29,19 +28,6 @@ import {
 } from './prediccionesReportChartUtils.js'
 
 const CHART_PRINT_PROPS = { isAnimationActive: false }
-
-const LABEL_PROPS = {
-  fontSize: 9,
-  fill: '#334155',
-  fontWeight: 600,
-}
-
-function fmtEtiquetaGrafico(value, { decimales = 0, sufijo = '' } = {}) {
-  if (value == null || value === '') return ''
-  const n = Number(value)
-  if (Number.isNaN(n)) return ''
-  return `${n.toLocaleString('es-CO', { maximumFractionDigits: decimales })}${sufijo}`
-}
 
 function ReportChartBox({ height, children }) {
   return (
@@ -141,7 +127,7 @@ export function PrediccionesMensualesChart({ predicciones, variableLabel = 'Valo
     <ReportChartBox height={360}>
       <LineChart
         data={data}
-        margin={{ top: 56, right: 16, left: 12, bottom: n > 8 ? 44 : 36 }}
+        margin={{ top: 40, right: 16, left: 12, bottom: n > 8 ? 44 : 36 }}
       >
         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
         <XAxis
@@ -164,14 +150,7 @@ export function PrediccionesMensualesChart({ predicciones, variableLabel = 'Valo
           strokeWidth={2}
           dot={{ r: 3 }}
           connectNulls={false}
-        >
-          <LabelList
-            dataKey="observados"
-            position="top"
-            {...LABEL_PROPS}
-            formatter={(v) => fmtEtiquetaGrafico(v)}
-          />
-        </Line>
+        />
         <Line
           {...CHART_PRINT_PROPS}
           type="monotone"
@@ -182,15 +161,7 @@ export function PrediccionesMensualesChart({ predicciones, variableLabel = 'Valo
           strokeDasharray="6 4"
           dot={{ r: 3 }}
           connectNulls
-        >
-          <LabelList
-            dataKey="ajuste"
-            position="top"
-            {...LABEL_PROPS}
-            fill="#6d28d9"
-            formatter={(v) => fmtEtiquetaGrafico(v, { decimales: 1 })}
-          />
-        </Line>
+        />
       </LineChart>
     </ReportChartBox>
   )
@@ -206,7 +177,7 @@ export function PrioridadTerritorialChart({ prioridad, nivel = 'comuna' }) {
       <BarChart
         layout="vertical"
         data={data}
-        margin={{ top: 48, right: 52, left: 4, bottom: 40 }}
+        margin={{ top: 40, right: 52, left: 4, bottom: 40 }}
         barCategoryGap="14%"
       >
         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
@@ -231,12 +202,6 @@ export function PrioridadTerritorialChart({ prioridad, nivel = 'comuna' }) {
           {data.map((d, i) => (
             <Cell key={`prio-${i}`} fill={PRIORIDAD_NIVEL_COLOR[d.nivel] ?? PRIORIDAD_NIVEL_COLOR.bajo} />
           ))}
-          <LabelList
-            dataKey="indice"
-            position="right"
-            {...LABEL_PROPS}
-            formatter={(v) => fmtEtiquetaGrafico(v, { decimales: 1 })}
-          />
         </Bar>
       </BarChart>
     </ReportChartBox>
@@ -256,7 +221,7 @@ export function ProporcionFatalesChart({ proporcion }) {
     <ReportChartBox height={340}>
       <LineChart
         data={data}
-        margin={{ top: 56, right: 16, left: 12, bottom: n > 8 ? 44 : 36 }}
+        margin={{ top: 40, right: 16, left: 12, bottom: n > 8 ? 44 : 36 }}
       >
         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
         <XAxis
@@ -279,14 +244,7 @@ export function ProporcionFatalesChart({ proporcion }) {
           strokeWidth={2}
           dot={{ r: 3 }}
           connectNulls={false}
-        >
-          <LabelList
-            dataKey="pct"
-            position="top"
-            {...LABEL_PROPS}
-            formatter={(v) => fmtEtiquetaGrafico(v, { decimales: 1, sufijo: '%' })}
-          />
-        </Line>
+        />
         <Line
           {...CHART_PRINT_PROPS}
           type="monotone"
@@ -297,15 +255,7 @@ export function ProporcionFatalesChart({ proporcion }) {
           strokeDasharray="6 4"
           dot={{ r: 3 }}
           connectNulls
-        >
-          <LabelList
-            dataKey="ajuste"
-            position="top"
-            {...LABEL_PROPS}
-            fill="#b45309"
-            formatter={(v) => fmtEtiquetaGrafico(v, { decimales: 1, sufijo: '%' })}
-          />
-        </Line>
+        />
       </LineChart>
     </ReportChartBox>
   )
@@ -321,7 +271,7 @@ export function CargaEsperadaChart({ carga, nivel = 'comuna' }) {
       <BarChart
         layout="vertical"
         data={data}
-        margin={{ top: 48, right: 56, left: 4, bottom: 40 }}
+        margin={{ top: 40, right: 56, left: 4, bottom: 40 }}
         barCategoryGap="14%"
       >
         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
@@ -333,12 +283,6 @@ export function CargaEsperadaChart({ carga, nivel = 'comuna' }) {
           {data.map((d, i) => (
             <Cell key={`carga-${i}`} fill={CARGA_CATEGORIA_COLOR[d.categoria] ?? CARGA_CATEGORIA_COLOR.bajo} />
           ))}
-          <LabelList
-            dataKey="carga"
-            position="right"
-            {...LABEL_PROPS}
-            formatter={(v) => fmtEtiquetaGrafico(v, { decimales: 1 })}
-          />
         </Bar>
       </BarChart>
     </ReportChartBox>
@@ -357,7 +301,7 @@ export function DiaSemanaProyectadoChart({ diaSemana }) {
         <span className="risk-chip risk-chip-bajo">Carga baja</span>
       </div>
       <ReportChartBox height={400}>
-        <BarChart data={data} margin={{ ...BAR_COMPARE_MARGIN, top: 56 }} barCategoryGap="18%">
+        <BarChart data={data} margin={{ ...BAR_COMPARE_MARGIN, top: 40 }} barCategoryGap="18%">
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
           <XAxis dataKey="dia" tick={{ fontSize: 11 }} />
           <YAxis allowDecimals={false} tick={{ fontSize: 11 }} width={48} />
@@ -375,12 +319,6 @@ export function DiaSemanaProyectadoChart({ diaSemana }) {
                 fill={PATRON_RIESGO_COLOR[d.carga_dia_nivel_observado] ?? PATRON_RIESGO_COLOR.bajo}
               />
             ))}
-            <LabelList
-              dataKey="incidentes_observados_periodo"
-              position="top"
-              {...LABEL_PROPS}
-              formatter={(v) => fmtEtiquetaGrafico(v)}
-            />
           </Bar>
           <Bar
             {...CHART_PRINT_PROPS}
@@ -388,15 +326,7 @@ export function DiaSemanaProyectadoChart({ diaSemana }) {
             name="Proyección (horizonte)"
             fill="#7c3aed"
             radius={[4, 4, 0, 0]}
-          >
-            <LabelList
-              dataKey="incidentes_proyectados_horizonte"
-              position="top"
-              {...LABEL_PROPS}
-              fill="#6d28d9"
-              formatter={(v) => fmtEtiquetaGrafico(v, { decimales: 1 })}
-            />
-          </Bar>
+          />
         </BarChart>
       </ReportChartBox>
     </>
@@ -452,7 +382,7 @@ export function MatrizPorHoraChart({ matriz, horizonteMeses = 3 }) {
 
   return (
     <ReportChartBox height={320}>
-      <LineChart data={data} margin={{ top: 52, right: 12, left: 8, bottom: 28 }}>
+      <LineChart data={data} margin={{ top: 40, right: 12, left: 8, bottom: 28 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
         <XAxis dataKey="horaLabel" tick={{ fontSize: 9 }} interval={1} />
         <YAxis allowDecimals={false} tick={{ fontSize: 10 }} width={40} />
@@ -465,16 +395,7 @@ export function MatrizPorHoraChart({ matriz, horizonteMeses = 3 }) {
           name="Periodo seleccionado"
           stroke="#0f766e"
           dot={{ r: 2 }}
-        >
-          <LabelList
-            dataKey="periodo"
-            position="top"
-            fontSize={8}
-            fill="#0f766e"
-            fontWeight={600}
-            formatter={(v) => (v > 0 ? fmtEtiquetaGrafico(v) : '')}
-          />
-        </Line>
+        />
         <Line
           {...CHART_PRINT_PROPS}
           type="monotone"
@@ -482,16 +403,7 @@ export function MatrizPorHoraChart({ matriz, horizonteMeses = 3 }) {
           name={`Proyección (${horizonteMeses} mes)`}
           stroke="#7c3aed"
           dot={{ r: 2 }}
-        >
-          <LabelList
-            dataKey="proyeccion"
-            position="bottom"
-            fontSize={8}
-            fill="#6d28d9"
-            fontWeight={600}
-            formatter={(v) => (v > 0 ? fmtEtiquetaGrafico(v, { decimales: 1 }) : '')}
-          />
-        </Line>
+        />
       </LineChart>
     </ReportChartBox>
   )

@@ -150,6 +150,11 @@ def _parse_modelo_pred(q: dict) -> str:
         "arima": "arima",
         "sarima": "sarima",
         "seasonal_arima": "sarima",
+        "tres_sigma": "tres_sigma",
+        "3_sigma": "tres_sigma",
+        "3sigma": "tres_sigma",
+        "tres_desviaciones": "tres_sigma",
+        "media_3sigma": "tres_sigma",
     }
     if raw not in aliases:
         raise ValueError("modelo_pred")
@@ -190,6 +195,11 @@ def _parse_modelo_carga(q: dict) -> str:
         "arima": "arima",
         "sarima": "sarima",
         "seasonal_arima": "sarima",
+        "tres_sigma": "tres_sigma",
+        "3_sigma": "tres_sigma",
+        "3sigma": "tres_sigma",
+        "tres_desviaciones": "tres_sigma",
+        "media_3sigma": "tres_sigma",
     }
     if raw not in aliases:
         raise ValueError("modelo_carga")

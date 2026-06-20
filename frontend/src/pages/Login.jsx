@@ -20,6 +20,8 @@ export function Login() {
       const u = await login(username, password)
       if (from) {
         navigate(from, { replace: true })
+      } else if (u?.perfil?.rol_codigo === 'administrador') {
+        navigate('/admin/usuarios', { replace: true })
       } else if (u?.perfil?.rol_codigo === 'analista') {
         navigate('/predicciones', { replace: true })
       } else {

@@ -12,6 +12,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import { ChartWheelZoom } from './ChartWheelZoom.jsx'
+import { WheelZoomTooltip, wheelZoomTooltipProps } from './WheelZoomTooltip.jsx'
 
 const MATRIX_BREAKPOINT_PX = 900
 const CHART_COMPACT_MAX_PX = 640
@@ -317,7 +319,7 @@ export function PatronesDiaHoraPanel({
               <div className="matrix-mobile-stack">
                 <div className="matrix-mobile-chart">
                   <h4 className="matrix-mobile-title">Incidentes por hora (suma semanal)</h4>
-                  <div className="chart-box" style={{ minHeight: chartLayoutCompact ? 260 : 280 }}>
+                  <ChartWheelZoom height={chartLayoutCompact ? 248 : 280}>
                     <ResponsiveContainer width="100%" height={chartLayoutCompact ? 248 : 280}>
                       <LineChart
                         data={porHora}
@@ -331,7 +333,10 @@ export function PatronesDiaHoraPanel({
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                         <XAxis dataKey="horaLabel" tick={{ fontSize: 10 }} />
                         <YAxis allowDecimals={false} tick={{ fontSize: 10 }} width={yAxisTickWidth} />
-                        <Tooltip />
+                        <Tooltip
+                          {...wheelZoomTooltipProps}
+                          content={(props) => <WheelZoomTooltip {...props} />}
+                        />
                         <Legend {...legendTopPropsResolved} />
                         <Line
                           type="monotone"
@@ -349,7 +354,7 @@ export function PatronesDiaHoraPanel({
                         />
                       </LineChart>
                     </ResponsiveContainer>
-                  </div>
+                  </ChartWheelZoom>
                 </div>
               </div>
             )}

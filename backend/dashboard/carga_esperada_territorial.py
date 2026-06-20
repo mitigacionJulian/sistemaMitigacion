@@ -380,7 +380,9 @@ def _guia_eleccion_modelo(modelo: str, holdout_meses: int) -> str:
         "(B) **cifras** — MAPE mediano y ponderado. "
         "En Medellín el ranking territorial suele ser bueno aunque el MAPE supere 20 %, porque cada comuna "
         "tiene menos historia que la ciudad entera. "
-        f"Cambie el modelo y compare: estacional u OLS para comunas; evite ARIMA/SARIMA salvo análisis puntual. "
+        f"Cambie el modelo y compare: estacional, μ±3σ u OLS para comunas; "
+        f"μ±3σ sirve como línea base (media constante) con bandas de control; "
+        f"evite ARIMA/SARIMA salvo análisis puntual. "
         f"La prueba usa {holdout_meses} meses reservados por territorio."
     )
 

@@ -175,35 +175,33 @@ export function ReportePredicciones({ cuerpo }) {
                 predicciones={pred}
                 variableLabel={predMeta?.variable_etiqueta || 'Valor'}
               />
-              <details className="reporte-tabla-detalle">
-                <summary className="muted small">Ver tabla de datos</summary>
-                <ReporteTable
-              columns={[
-                { key: 'mes', label: 'Mes' },
-                {
-                  key: 'tipo',
-                  label: 'Tipo',
-                  render: (r) => (r.tipo === 'proyectado' ? 'Proyectado' : 'Observado'),
-                },
-                {
-                  key: 'valor',
-                  label: predMeta?.variable_etiqueta || 'Valor',
-                  className: 'num',
-                  render: (r) => formatReporteNumero(r.valor, { maximumFractionDigits: 2 }),
-                },
-                {
-                  key: 'ajuste',
-                  label: 'Ajuste modelo',
-                  className: 'num',
-                  render: (r) =>
-                    r.ajuste != null
-                      ? formatReporteNumero(r.ajuste, { maximumFractionDigits: 2 })
-                      : '—',
-                },
-              ]}
-              rows={pred.tabla_mensual}
-            />
-              </details>
+              <h3 className="reporte-tops-title">Datos del gráfico (mes a mes)</h3>
+              <ReporteTable
+                columns={[
+                  { key: 'mes', label: 'Mes' },
+                  {
+                    key: 'tipo',
+                    label: 'Tipo',
+                    render: (r) => (r.tipo === 'proyectado' ? 'Proyectado' : 'Observado'),
+                  },
+                  {
+                    key: 'valor',
+                    label: predMeta?.variable_etiqueta || 'Valor',
+                    className: 'num',
+                    render: (r) => formatReporteNumero(r.valor, { maximumFractionDigits: 2 }),
+                  },
+                  {
+                    key: 'ajuste',
+                    label: 'Ajuste modelo',
+                    className: 'num',
+                    render: (r) =>
+                      r.ajuste != null
+                        ? formatReporteNumero(r.ajuste, { maximumFractionDigits: 2 })
+                        : '—',
+                  },
+                ]}
+                rows={pred.tabla_mensual}
+              />
             </>
           )}
         </ReporteSection>
@@ -292,9 +290,8 @@ export function ReportePredicciones({ cuerpo }) {
           hint={carga.meta?.interpretacion || carga.meta?.limitaciones}
         >
           <CargaEsperadaChart carga={carga} nivel={nivelCarga} />
-          <details className="reporte-tabla-detalle">
-            <summary className="muted small">Ver tabla de datos</summary>
-            <ReporteTable
+          <h3 className="reporte-tops-title">Datos del gráfico</h3>
+          <ReporteTable
               columns={[
                 { key: 'rank', label: '#' },
                 {
@@ -319,7 +316,6 @@ export function ReportePredicciones({ cuerpo }) {
               ]}
               rows={carga.ranking}
             />
-          </details>
         </ReporteSection>
       )}
 
@@ -334,9 +330,8 @@ export function ReportePredicciones({ cuerpo }) {
             </p>
           ) : null}
           <ProporcionFatalesChart proporcion={proporcion} />
-          <details className="reporte-tabla-detalle">
-            <summary className="muted small">Ver tabla de datos</summary>
-            <ReporteTable
+          <h3 className="reporte-tops-title">Datos del gráfico (mes a mes)</h3>
+          <ReporteTable
             columns={[
               { key: 'mes', label: 'Mes' },
               {
@@ -365,7 +360,6 @@ export function ReportePredicciones({ cuerpo }) {
             ]}
             rows={proporcion.tabla_mensual}
           />
-          </details>
         </ReporteSection>
       )}
 
@@ -375,9 +369,8 @@ export function ReportePredicciones({ cuerpo }) {
           hint={diaSemana.meta?.interpretacion || diaSemana.meta?.descripcion}
         >
           <DiaSemanaProyectadoChart diaSemana={diaSemana} />
-          <details className="reporte-tabla-detalle">
-            <summary className="muted small">Ver tabla de datos</summary>
-            <ReporteTable
+          <h3 className="reporte-tops-title">Datos del gráfico</h3>
+          <ReporteTable
               columns={[
                 { key: 'dia', label: 'Día', render: (r) => r.dia ?? r.dia_etiqueta ?? r.dia_semana },
                 {
@@ -404,7 +397,6 @@ export function ReportePredicciones({ cuerpo }) {
               ]}
               rows={diaSemana.serie}
             />
-          </details>
         </ReporteSection>
       )}
 
@@ -419,10 +411,9 @@ export function ReportePredicciones({ cuerpo }) {
         >
           <MatrizProyectadaHeatmaps matriz={matriz} horizonteMeses={horizonteMeses} />
           <MatrizPorHoraChart matriz={matriz} horizonteMeses={horizonteMeses} />
-          {matriz?.resumen?.top_celdas?.length > 0 && (
-            <details className="reporte-tabla-detalle">
-              <summary className="muted small">Ver tablas de resumen</summary>
-              <h3 className="reporte-tops-title">Totales por hora</h3>
+          {matriz?.resumen?.por_hora?.length > 0 && (
+            <>
+              <h3 className="reporte-tops-title">Datos del gráfico por hora</h3>
               <ReporteTable
                 columns={[
                   { key: 'hora', label: 'Hora', render: (r) => `${r.hora}:00` },
@@ -450,6 +441,11 @@ export function ReportePredicciones({ cuerpo }) {
                 )}
                 emptyMessage="Sin datos en la matriz"
               />
+            </>
+          )}
+          {matriz?.resumen?.top_celdas?.length > 0 && (
+            <details className="reporte-tabla-detalle">
+              <summary className="muted small">Ver top celdas día × hora</summary>
               <h3 className="reporte-tops-title">Top celdas día × hora (proyectado)</h3>
               <ReporteTable
                 columns={[
