@@ -6,14 +6,28 @@ Sistema web para visualización y análisis de accidentalidad vial (caso de estu
 
 | Capa | Tecnologías |
 |------|-------------|
-| Backend | Django, Django REST Framework, **GeoDjango** |
+| Backend | Django 5, **Django REST Framework**, **SimpleJWT**, **GeoDjango** |
 | Base de datos | **PostgreSQL + PostGIS** |
-| ETL / análisis | Python (pandas, NumPy, **statsmodels**; GeoPandas cuando aplique) |
-| Frontend | React, Vite, **Leaflet** (mapa), **Recharts** (gráficos) |
+| Cálculo en API | **NumPy** (OLS, Poisson, métricas), **statsmodels** (ARIMA/SARIMA) |
+| ETL / análisis offline | **pandas**, openpyxl, matplotlib (`requirements-etl.txt`) |
+| Frontend | **React 19**, **Vite**, **React Router** |
+| Mapa | **Leaflet**, react-leaflet, markercluster, heat, area-selection, **topojson-client** |
+| Gráficos | **Recharts**; zoom: **react-zoom-pan-pinch** |
+| Reportes | Recharts + **html2canvas** (mapa) + CSS `@media print` |
+| IA | **Google Gemini API** (HTTP/`urllib`, function calling) |
 | Pruebas | pytest, pytest-django |
-| Local | Docker Compose (opcional) o Postgres + backend en el PC |
 
-No introducir otra pila (p. ej. otro framework backend o mapa) sin acuerdo con el director y registro en la documentación local.
+No introducir otra pila (p. ej. otro framework backend o mapa) sin acuerdo con el director.
+
+### Librerías por sección (sustentación)
+
+Documentación detallada en **`docs/LIBRERIAS_Y_SECCIONES.md`** (carpeta local, no en Git remoto):
+
+- Qué librería usa cada pantalla (Tablero, Mapa, Predicciones, Reportes, Admin, Asistente).
+- Qué modelos usan NumPy vs statsmodels vs SQL puro.
+- FAQ oral: **`docs/GUIA_SUSTENTACION_LIBRERIAS.md`**.
+
+Índice de `docs/`: **`docs/README.md`**.
 
 ## Variables de entorno
 
@@ -23,7 +37,7 @@ copy .env.example .env   # Windows
 ```
 
 - **Sin Docker:** use en `.env` su `POSTGRES_HOST`, `POSTGRES_PORT` y base local (ej. pgAdmin en `5434`).
-- **Con Docker:** `POSTGRES_DB=mitigacion_accidentes`, misma `POSTGRES_PASSWORD`; procedimiento en **`docs/MANUAL_INSTALACION_EJECUCION.md`** §8 (local). Compose fija `POSTGRES_HOST=db` solo en el contenedor backend.
+- **Con Docker:** `POSTGRES_DB=mitigacion_accidentes`, misma `POSTGRES_PASSWORD`; procedimiento en **`docs/MANUAL_INSTALACION_EJECUCION.md`** §8 (local) si tiene copia en `docs/`.
 - **JWT / auth:** `JWT_ACCESS_MINUTES` (15), `JWT_REFRESH_DAYS`, `FRONTEND_URL`, `PASSWORD_RESET_TOKEN_HOURS` (ver `.env.example`).
 - **Asistente IA:** `GEMINI_API_KEY` (obligatoria para `/agente`), `AGENT_MODEL_FLASH`, `AGENT_CACHE_TTL`, `AGENT_DAILY_LIMIT_PER_IP` (ver `.env.example`).
 
@@ -50,58 +64,69 @@ npm run dev
 
 API: `http://127.0.0.1:8000` · Frontend: `http://127.0.0.1:5173` (proxy `/api` → backend).
 
-**Acceso:** Inicio, Tablero, Mapa y **Asistente** (`/agente`) son públicos. **Predicciones** y **reportes** requieren iniciar sesión con rol **analista** (JWT). En el asistente, las consultas predictivas también requieren sesión de analista (el JWT se envía automáticamente si hay login).
+## Acceso y roles
 
-**Docker (alternativa):** `docker compose up --build` desde la raíz; ver `docs/MANUAL_INSTALACION_EJECUCION.md` §8. No ejecutar otro `runserver` en el puerto 8000 a la vez.
+| Rol | Tablero / Mapa / Asistente | Predicciones / Reportes | Gestión usuarios |
+|-----|------------------------------|-------------------------|------------------|
+| Sin login | Sí | No | No |
+| Ciudadano | Sí | No | No |
+| Analista | Sí | Sí | No |
+| Administrador | Sí | Sí | Sí (`/admin/usuarios`) |
+| Autoridad | Sí (perfil reservado) | No* | No |
 
-**BD creada con SQL manual (pgAdmin):** ver `docs/MANUAL_INSTALACION_EJECUCION.md` §9 y `docs/MANUAL_CARGA_DATOS_BD.md`.
+\*Rol definido en BD para extensión futura; hoy mismo alcance que ciudadano en la UI.
 
-## Estructura
+**Usuario administrador de demostración** (migración `0005_seed_admin_user`):
 
-Resumen breve; **árbol completo** en `docs/MANUAL_INSTALACION_EJECUCION.md` §2.
+- Usuario: `admin`
+- Contraseña: `AdminUSB2026!`
+
+## Estructura del repositorio
 
 | Carpeta / archivo | Rol |
 |-------------------|-----|
-| `backend/` | API REST, lógica de indicadores, **reportes** (`reports/`) |
-| `frontend/` | SPA (Inicio, Tablero, Mapa, Asistente, Predicciones, **Reportes**) |
-| `backend/agent/` | Asistente IA (Gemini + herramientas sobre APIs del dashboard) |
-| `mede_pipeline_guiado.py`, `mede_limpieza.py`, `mede_eda_export.py` | ETL y EDA |
-| `carga_mede_pgadmin.sql`, `requirements-etl.txt` | Carga idempotente a PostgreSQL |
-| `scripts/cargar_poligonos_medellin.py` | Wrapper carga shapefile (ver manual carga §6) |
+| `backend/accounts/` | JWT, roles, admin API usuarios |
+| `backend/dashboard/` | Indicadores, predicciones, mapa (SQL/NumPy/statsmodels) |
+| `backend/agent/` | Asistente Gemini + herramientas |
+| `backend/reports/` | Payload de reportes |
+| `frontend/src/pages/` | Pantallas por ruta |
+| `frontend/src/map/` | Leaflet, captura, TopoJSON |
+| `evaluaciones/` | CSV y notas de evaluación de modelos (predicciones) |
+| `mede_pipeline_guiado.py`, `mede_limpieza.py`, … | ETL Mede (pandas) |
 
-## Documentación (carpeta `docs/`, local)
+## Documentación local (`docs/`)
 
-Cinco documentos oficiales del proyecto (no versionados en Git público si `docs/` está en `.gitignore`). Copie la carpeta `docs/` completa al trasladar el proyecto a otro PC (ver `MANUAL_INSTALACION` §13).
+La carpeta **`docs/`** está en `.gitignore` (memoria de grado). Mantenga copia en su máquina/USB:
 
 | Documento | Contenido |
 |-----------|-----------|
-| `docs/DOCUMENTO_TECNICO_SISTEMA.md` | Arquitectura, datos, APIs, mapa, asistente IA, modelos predictivos |
-| `docs/MANUAL_INSTALACION_EJECUCION.md` | Clonar, `.env`, PostGIS, Docker, migraciones, inventario portabilidad |
-| `docs/MANUAL_CARGA_DATOS_BD.md` | ETL Mede, PostGIS 001–006, polígonos, carga SQL |
-| `docs/GUIA_SUSTENTACION_COMPLETA.md` | Demo oral, FAQ jurado, fórmulas |
-| `docs/CIERRE_PROYECTO.md` | Alcance final, checklist, limpieza del repo |
-
-Además en `docs/`: `esquema_base_datos.sql` y `shp/` (shapefile límites comunales).
-
-
-
+| `docs/LIBRERIAS_Y_SECCIONES.md` | **Librerías y funciones por sección** |
+| `docs/DOCUMENTO_TECNICO_SISTEMA.md` | Arquitectura y APIs |
+| `docs/GUIA_SUSTENTACION_LIBRERIAS.md` | Respuestas cortas para el jurado |
+| `docs/MANUAL_INSTALACION_EJECUCION.md` | Instalación (si existe en su copia) |
+| `docs/MANUAL_CARGA_DATOS_BD.md` | Carga PostGIS (si existe en su copia) |
 
 ## Pruebas backend
 
-Desde la carpeta `backend`, con el entorno virtual activado (mismo flujo que [Inicio rápido](#inicio-rápido-desarrollo-local-habitual)):
-
 ```powershell
 cd backend
-.\.venv\Scripts\activate          # Linux/macOS: source .venv/bin/activate
+.\.venv\Scripts\activate
 pip install -r requirements.txt
 python -m pytest -q
 ```
 
-Esperado: suite `pytest` en verde (SQLite en memoria vía `config.settings_test`; ver `backend/pytest.ini`). Incluye tests de `dashboard/`, `agent/` y `reports/`.
+Esperado: suite en verde (SQLite en tests; PostGIS con `check_postgis` en BD real).
 
-Los tests de predicciones usan JWT de rol **analista** (`backend/conftest.py`). PostGIS en PostgreSQL real se valida aparte con `python manage.py check_postgis` (no sustituye la suite pytest).
+## Frontend — dependencias npm (referencia)
 
+```json
+"react", "react-dom", "react-router-dom", "recharts", "leaflet", "react-leaflet",
+"leaflet.heat", "leaflet.markercluster", "@bopen/leaflet-area-selection",
+"topojson-client", "html2canvas", "react-zoom-pan-pinch"
+```
+
+Versiones exactas en `frontend/package.json`.
 
 ## Licencia / uso académico
 
-Proyecto de grado — Universidad San buenaventura (USB). Uso académico
+Proyecto de grado — Universidad San Buenaventura (USB). Uso académico.
