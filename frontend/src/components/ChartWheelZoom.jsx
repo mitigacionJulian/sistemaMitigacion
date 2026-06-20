@@ -10,7 +10,10 @@ function ChartWheelZoomToolbar({ resetTransform, zoomIn, zoomOut }) {
   return (
     <div className="chart-wheel-zoom-toolbar">
       <span className="muted small chart-wheel-zoom-hint">
-        Rueda del mouse sobre el gráfico para acercar o alejar · arrastre para mover
+        <span className="chart-wheel-zoom-hint-full">
+          Rueda del mouse sobre el gráfico para acercar o alejar · arrastre para mover
+        </span>
+        <span className="chart-wheel-zoom-hint-compact">Pellizcar o arrastrar para zoom</span>
       </span>
       <div className="chart-wheel-zoom-actions">
         <button type="button" className="chart-zoom-reset" onClick={() => zoomOut(BUTTON_ZOOM_STEP)} aria-label="Alejar">

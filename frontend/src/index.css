@@ -3166,6 +3166,10 @@ a {
   margin: 0;
 }
 
+.chart-wheel-zoom-hint-compact {
+  display: none;
+}
+
 .chart-wheel-zoom-actions {
   display: flex;
   flex-wrap: wrap;
@@ -3462,6 +3466,252 @@ a {
   border-left: 3px solid #0d9488;
   background: rgba(13, 148, 136, 0.06);
   border-radius: 0 6px 6px 0;
+}
+
+/* --- Refinamiento móvil (≤640px / ≤480px) --- */
+@media (max-width: 640px) {
+  .main {
+    padding: 0.85rem;
+  }
+
+  .panel {
+    padding: 0.85rem;
+  }
+
+  .page-intro h1,
+  .map-page-header h1,
+  .admin-usuarios-header h1 {
+    font-size: 1.25rem;
+    line-height: 1.25;
+  }
+
+  .page-intro-with-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .page-intro-actions {
+    width: 100%;
+  }
+
+  .page-intro-actions .btn,
+  .map-page-header-actions .btn,
+  .hero-actions .btn {
+    width: 100%;
+  }
+
+  .filter-grid {
+    grid-template-columns: 1fr;
+    gap: 0.65rem;
+  }
+
+  .filter-field input,
+  .filter-field select {
+    width: 100%;
+    min-height: 2.35rem;
+  }
+
+  .filter-field.filter-field-checkbox,
+  .filter-field-checkbox.checkbox-inline {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 0.55rem;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+
+  .filter-field.filter-field-checkbox input,
+  .filter-field-checkbox.checkbox-inline input {
+    width: auto;
+    min-height: auto;
+    margin-top: 0.15rem;
+    flex-shrink: 0;
+  }
+
+  .filter-actions {
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .filter-actions .btn {
+    width: 100%;
+  }
+
+  .kpi-row {
+    grid-template-columns: 1fr;
+    gap: 0.65rem;
+  }
+
+  .predicciones-toolbar,
+  .seccion-modelo-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+  }
+
+  .seccion-modelo-toolbar label,
+  .seccion-modelo-toolbar .arima-param-field {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .seccion-modelo-toolbar .predicciones-select,
+  .seccion-modelo-toolbar .predicciones-input,
+  .seccion-modelo-toolbar .arima-param-input {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .chart-panel-comparativo h2,
+  .panel.filter-panel h2 {
+    font-size: 1.05rem;
+    line-height: 1.35;
+  }
+
+  .chart-box-tall {
+    min-height: 260px;
+  }
+
+  .chart-wheel-zoom-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.45rem;
+  }
+
+  .chart-wheel-zoom-hint-full {
+    display: none;
+  }
+
+  .chart-wheel-zoom-hint-compact {
+    display: block;
+    font-size: 0.75rem;
+    line-height: 1.35;
+  }
+
+  .chart-wheel-zoom-actions {
+    justify-content: flex-end;
+  }
+
+  .chart-wheel-zoom-actions .btn,
+  .chart-zoom-reset {
+    min-height: 2.25rem;
+    padding: 0.4rem 0.65rem;
+  }
+
+  .table,
+  .serie-datos-tabla,
+  .admin-usuarios-table {
+    font-size: 0.78rem;
+  }
+
+  .table th,
+  .table td,
+  .serie-datos-tabla th,
+  .serie-datos-tabla td {
+    padding: 0.4rem 0.45rem;
+  }
+
+  .cmp-table-wrap,
+  .tops-table-wrap,
+  .holdout-table-wrap,
+  .serie-datos-tabla-scroll,
+  .admin-usuarios-table-wrap {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  .admin-usuarios-acciones {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .admin-usuarios-acciones .btn {
+    width: 100%;
+  }
+
+  .admin-usuarios-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .reporte-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .reporte-toolbar-actions {
+    width: 100%;
+  }
+
+  .reporte-toolbar-actions .btn {
+    width: 100%;
+  }
+
+  .agent-form-actions {
+    justify-content: stretch;
+  }
+
+  .agent-form-actions .btn {
+    width: 100%;
+  }
+
+  .matrix-mobile-reading {
+    font-size: 0.75rem;
+  }
+
+  .heatmap-desktop-shell {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .footer {
+    padding: 0.85rem 1rem;
+    font-size: 0.8rem;
+  }
+}
+
+@media (min-width: 641px) {
+  .chart-wheel-zoom-hint-compact {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .main {
+    padding: 0.65rem;
+  }
+
+  .panel {
+    padding: 0.75rem;
+  }
+
+  .topbar {
+    padding: 0.55rem 0.75rem;
+  }
+
+  .brand-short {
+    font-size: 0.92rem;
+  }
+
+  .hero h1 {
+    font-size: 1.45rem;
+  }
+
+  .lead {
+    font-size: 0.95rem;
+  }
+
+  .map-page .landing-map-shell {
+    height: min(360px, 50vh);
+    min-height: 260px;
+  }
+
+  .landing-map-shell {
+    height: 280px;
+    min-height: 240px;
+  }
 }
 
 @media print {
