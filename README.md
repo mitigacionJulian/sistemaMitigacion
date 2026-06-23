@@ -91,7 +91,7 @@ API: `http://127.0.0.1:8000` · Frontend: `http://127.0.0.1:5173` (proxy `/api` 
 | `backend/reports/` | Payload de reportes |
 | `frontend/src/pages/` | Pantallas por ruta |
 | `frontend/src/map/` | Leaflet, captura, TopoJSON |
-| `evaluaciones/` | CSV y notas de evaluación de modelos (predicciones) |
+| `evaluaciones/` | `EVALUACION_MODULO_PREDICCIONES.md` + CSV de evaluación de modelos |
 | `mede_pipeline_guiado.py`, `mede_limpieza.py`, … | ETL Mede (pandas) |
 
 ## Documentación local (`docs/`)
@@ -102,9 +102,13 @@ La carpeta **`docs/`** está en `.gitignore` (memoria de grado). Mantenga copia 
 |-----------|-----------|
 | `docs/LIBRERIAS_Y_SECCIONES.md` | **Librerías y funciones por sección** |
 | `docs/DOCUMENTO_TECNICO_SISTEMA.md` | Arquitectura y APIs |
+| `docs/GUIA_SUSTENTACION_COMPLETA.md` | Demo, fórmulas y FAQ integral (sustentación) |
 | `docs/GUIA_SUSTENTACION_LIBRERIAS.md` | Respuestas cortas para el jurado |
-| `docs/MANUAL_INSTALACION_EJECUCION.md` | Instalación (si existe en su copia) |
-| `docs/MANUAL_CARGA_DATOS_BD.md` | Carga PostGIS (si existe en su copia) |
+| `docs/CIERRE_PROYECTO.md` | Alcance final y checklist de cierre |
+| `docs/VIADATA_DOCUMENTACION_INTEGRAL.md` | **Documento maestro** para exportar a la tesis |
+| `docs/MANUAL_INSTALACION_EJECUCION.md` | Instalación |
+| `docs/MANUAL_CARGA_DATOS_BD.md` | Carga PostGIS |
+| `evaluaciones/EVALUACION_MODULO_PREDICCIONES.md` | Evaluación modelos Predicciones (§1–§5) |
 
 ## Pruebas backend
 
@@ -116,6 +120,20 @@ python -m pytest -q
 ```
 
 Esperado: suite en verde (SQLite en tests; PostGIS con `check_postgis` en BD real).
+
+### Reporte Allure (visual)
+
+Requiere `allure-pytest` (en `requirements.txt`), **Node.js** (`npx`) y **Java 8+** (Allure CLI).
+
+```powershell
+cd backend
+.\run_pytest_allure.ps1 -Serve      # ejecuta tests y abre reporte en el navegador
+.\run_pytest_allure.ps1 -Static      # genera backend/allure-report/index.html
+```
+
+Salida cruda: `backend/allure-results/` (ignorada en Git).
+
+El reporte agrupa automáticamente por **Epic** (módulo), **Feature** (archivo de prueba), **Story** (caso), **Severidad** y etiquetas: `categoria`, `tipo_prueba`, `capa`, `indicador` (P05, P07, etc.). Configuración en `backend/allure_reporting.py`.
 
 ## Frontend — dependencias npm (referencia)
 

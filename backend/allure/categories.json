@@ -1,0 +1,29 @@
+[
+  {
+    "name": "Fallos en autenticación o permisos",
+    "messageRegex": ".*(auth|permission|401|403|JWT).*",
+    "matchedStatuses": ["failed", "broken"]
+  },
+  {
+    "name": "Fallos en predicciones / modelos",
+    "messageRegex": ".*(prediccion|arima|sarima|mape|holdout).*",
+    "matchedStatuses": ["failed", "broken"]
+  },
+  {
+    "name": "Fallos de API REST",
+    "messageRegex": ".*(status_code|API|reverse).*",
+    "matchedStatuses": ["failed"]
+  },
+  {
+    "name": "Errores de producto",
+    "matchedStatuses": ["failed"]
+  },
+  {
+    "name": "Errores de entorno / integración",
+    "matchedStatuses": ["broken"]
+  },
+  {
+    "name": "Pruebas omitidas",
+    "matchedStatuses": ["skipped"]
+  }
+]
