@@ -10,6 +10,7 @@ SECCION_LABELS = {
     "mapa": "Mapa de accidentalidad",
     "predicciones": "Predicciones",
     "asistente": "Asistente de accidentalidad",
+    "pruebas": "Pruebas del sistema",
 }
 
 SECCIONES_VALIDAS = frozenset(SECCION_LABELS.keys())

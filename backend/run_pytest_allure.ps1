@@ -1,6 +1,8 @@
-# Ejecuta pytest con salida Allure y opcionalmente abre el reporte.
+# Ejecuta pytest con salida Allure (JSON) y opcionalmente abre el reporte HTML oficial.
 #
-# Uso:
+# Uso habitual del proyecto: panel /admin/pruebas (no requiere este script ni Node/Java).
+#
+# Uso de este script (opcional, reporte visual clásico Allure):
 #   .\run_pytest_allure.ps1              # solo genera allure-results/
 #   .\run_pytest_allure.ps1 -Serve       # genera y abre en el navegador
 #   .\run_pytest_allure.ps1 -Static      # genera allure-report/index.html

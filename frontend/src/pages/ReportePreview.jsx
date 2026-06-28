@@ -50,7 +50,7 @@ export function ReportePreview() {
         <section className="panel">
           <h1>Vista previa del reporte</h1>
           <p className="muted">
-            No hay un reporte en memoria. Genere uno desde el tablero, mapa, predicciones o asistente con el botón{' '}
+            No hay un reporte en memoria. Genere uno desde el tablero, mapa, predicciones, asistente o pruebas (admin) con el botón{' '}
             <strong>Generar reporte</strong>.
           </p>
           <p>

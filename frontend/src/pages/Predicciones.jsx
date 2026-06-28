@@ -504,14 +504,31 @@ const BONDAD_METRICAS_GLOSARIO = [
   {
     sigla: 'MAPE',
     texto:
-      'Error medio expresado como porcentaje del valor real. ' +
-      'Un MAPE de 15 % significa que, en promedio, la predicción se aleja alrededor de un 15 % del dato observado.',
+      'Error medio de la predicción expresado como porcentaje del valor real observado. ' +
+      'Un MAPE de 15 % significa que, en promedio, el valor predicho se aleja ~15 % del dato real de cada mes. ' +
+      'No indica «cuántos meses caen en un rango normal»; eso es otra métrica (véase % dentro de μ±3σ). ' +
+      'Para decidir confiabilidad predictiva, priorice el MAPE de la prueba con meses reservados.',
   },
   {
     sigla: 'Precisión estimada',
     texto:
-      'Lectura sencilla del MAPE: 100 % menos el error. ' +
-      'Si el MAPE es 15 %, la precisión estimada ronda el 85 %. Sirve para comparar modelos de un vistazo.',
+      'Lectura del MAPE: 100 % menos el error. Si el MAPE en la prueba es 17 %, la precisión estimada ≈ 83 %. ' +
+      'Significa que la predicción puntual (p. ej. la media proyectada) acertó el orden de magnitud de esos meses, ' +
+      'no que un 83 % de meses históricos estén dentro de la banda azul.',
+  },
+  {
+    sigla: 'Banda μ±3σ',
+    texto:
+      'Corredor de control fijo: media μ del periodo de ajuste ± 3 desviaciones estándar muestrales (σ). ' +
+      'Límite inferior = max(0, μ − 3σ); límite superior = μ + 3σ. La zona azul del gráfico marca ese intervalo. ' +
+      'No es intervalo de confianza de la predicción futura; delimita variación habitual del historial.',
+  },
+  {
+    sigla: '% meses dentro de μ±3σ',
+    texto:
+      'De los meses del ajuste, cuántos tienen el conteo observado entre los límites de la banda. ' +
+      'Ej.: 39/39 (100 %) → ningún mes atípico respecto al periodo. Los puntos rojos en el gráfico son meses fuera. ' +
+      'Esta cifra evalúa estabilidad/control del historial; es distinta del MAPE y de la precisión estimada.',
   },
   {
     sigla: 'Prueba con meses reservados',
@@ -527,13 +544,38 @@ const BONDAD_METRICAS_GLOSARIO = [
   },
 ]
 
-function BondadMetricasContenido({ umbralesP07 = null, mostrarReglaPractica = true }) {
+/** Guía desplegable cerrada por defecto (sin atributo `open`). */
+function GuiaDesplegable({ summary, children, className = '' }) {
+  return (
+    <details className={`prioridad-ayuda-details predicciones-guia ${className}`.trim()}>
+      <summary>{summary}</summary>
+      <div className="predicciones-guia-body muted small">{children}</div>
+    </details>
+  )
+}
+
+function BondadMetricasContenido({
+  umbralesP07 = null,
+  mostrarReglaPractica = true,
+  modelo = null,
+}) {
+  const esTresSigma = modelo === 'tres_sigma'
   return (
     <>
       <p>
         Estas cifras aparecen bajo los gráficos. Ayudan a comparar modelos y a saber si la proyección es razonable
         con los filtros elegidos; no son una predicción exacta mes a mes.
       </p>
+      {esTresSigma ? (
+        <p className="bondad-metricas-nota-tres-sigma">
+          <strong>Modelo μ±3σ — evite mezclar métricas:</strong> la <strong>banda azul</strong> y el{' '}
+          <strong>% de meses dentro de μ±3σ</strong> miden si el historial fue «habitual» o tuvo meses atípicos. El{' '}
+          <strong>MAPE</strong> (sobre todo en la <strong>prueba con meses reservados</strong>) mide si la{' '}
+          <strong>proyección constante = media</strong> acertó meses que el modelo no vio al entrenar. El{' '}
+          <strong>R² suele ser ≈ 0</strong> aquí porque la proyección no sigue la curva mes a mes; no lo use para
+          juzgar este modelo.
+        </p>
+      ) : null}
       <ul className="bondad-metricas-list">
         {BONDAD_METRICAS_GLOSARIO.map((item) => (
           <li key={item.sigla}>
@@ -569,10 +611,17 @@ function BondadMetricasContenido({ umbralesP07 = null, mostrarReglaPractica = tr
             moderado; por debajo de 0,35, bajo. Con estacionalidad y el periodo COVID es normal no acercarse a 1.
           </p>
           <p>
-            <strong>Precisión aceptable:</strong> en la prueba con meses reservados, un MAPE de 20 % o menos equivale
-            a una precisión estimada de al menos 80 %. Por encima de ese error, conviene probar otro modelo o ampliar
-            el rango de fechas.
+            <strong>Confiabilidad predictiva (MAPE en la prueba):</strong> un MAPE de 20 % o menos equivale a una
+            precisión estimada de al menos 80 % — el modelo acertó el orden de magnitud en los meses reservados.
+            Por encima de ese error, conviene probar otro modelo o ampliar el rango de fechas.
           </p>
+          {esTresSigma ? (
+            <p>
+              <strong>Estabilidad del historial (% dentro de μ±3σ):</strong> ≥ 95 % → bueno; ≥ 85 % → moderado;
+              por debajo → muchos meses atípicos. No sustituye al MAPE de la prueba para decidir si la media es buena
+              proyección.
+            </p>
+          ) : null}
         </>
       )}
       {mostrarReglaPractica && (
@@ -585,24 +634,27 @@ function BondadMetricasContenido({ umbralesP07 = null, mostrarReglaPractica = tr
   )
 }
 
-function BondadMetricasGuia({ meta = null, defaultOpen = false, incluirHoldout = false }) {
+function BondadMetricasGuia({ meta = null, incluirHoldout = false }) {
   return (
-    <details className="prioridad-ayuda-details bondad-metricas-guia" open={defaultOpen}>
-      <summary>
-        {incluirHoldout
+    <GuiaDesplegable
+      className="bondad-metricas-guia"
+      summary={
+        incluirHoldout
           ? '¿Qué significan estas métricas?'
-          : '¿Qué significan R², RMSE, MAPE, AIC y BIC?'}
-      </summary>
-      <div className="muted small bondad-metricas-body">
-        <BondadMetricasContenido umbralesP07={meta?.umbrales_r2_p07} />
+          : '¿Qué significan R², RMSE, MAPE, AIC y BIC?'
+      }
+    >
+      <div className="bondad-metricas-body">
+        <BondadMetricasContenido umbralesP07={meta?.umbrales_r2_p07} modelo={meta?.modelo} />
         {incluirHoldout ? (
           <p>
-            Más detalle sobre la <strong>prueba con meses reservados</strong> y cómo elegir el rango de fechas está en
-            el panel «Prueba del modelo» (debajo del gráfico).
+            La <strong>prueba con meses reservados</strong> (panel «Prueba del modelo») aparta 3 o 6 meses al final,
+            entrena sin ellos y compara predicción vs realidad. Para elegir modelo suele pesar más que el R² del
+            gráfico. Precisión estimada ≈ 100 % − MAPE; ≤ 20 % MAPE se considera aceptable.
           </p>
         ) : null}
       </div>
-    </details>
+    </GuiaDesplegable>
   )
 }
 
@@ -619,6 +671,33 @@ function BondadConsejoModelo({ meta }) {
   const holdoutBueno = precisionHold != null && precisionHold >= 80
   const holdoutMalo = mapeHold != null && mapeHold > 20
   if (Number.isNaN(r2)) return null
+
+  if (mod === 'tres_sigma') {
+    const pctDentro = c.pct_meses_dentro_3sigma
+    return (
+      <p
+        className={`muted small bondad-consejo ${holdoutBueno ? 'bondad-consejo--ok' : ''}`}
+        role="status"
+      >
+        <strong>Lectura rápida (μ±3σ):</strong> la banda azul delimita el rango habitual del historial
+        {pctDentro != null ? (
+          <>
+            {' '}
+            ({pctDentro} % de meses dentro)
+          </>
+        ) : null}
+        . Para confiar en la <strong>proyección = media</strong>, mire el MAPE de la{' '}
+        <strong>prueba con meses reservados</strong>
+        {precisionHold != null ? (
+          <>
+            {' '}
+            (precisión estimada ≈ {precisionHold} %)
+          </>
+        ) : null}
+        ; el R² bajo es normal en este modelo.
+      </p>
+    )
+  }
 
   if (holdoutBueno && r2 < 0.35) {
     return (
@@ -766,31 +845,35 @@ function CargaBondadPanel({ meta }) {
           <strong>Interpretación:</strong> {b.interpretacion}
         </p>
       )}
-      {recs.length > 0 && (
-        <details className="prioridad-ayuda-details carga-modelo-ayuda">
-          <summary>¿Por qué el MAPE es alto y qué puedo hacer?</summary>
-          <ul className="muted small carga-recomendaciones-list">
-            {recs.map((t) => (
-              <li key={t}>{t}</li>
-            ))}
-          </ul>
-        </details>
+      {(recs.length > 0 || b.guia_eleccion_modelo) && (
+        <GuiaDesplegable
+          className="carga-modelo-ayuda"
+          summary="Guía — métricas, modelo y MAPE alto"
+        >
+          {b.guia_eleccion_modelo ? <p>{b.guia_eleccion_modelo}</p> : null}
+          <p>
+            <strong>Ranking vs cifras:</strong> Spearman y # vol. miden si el orden territorial es coherente; el
+            MAPE mediano mide si las sumas proyectadas acertaron en la prueba. Pueden divergir (p. ej. μ±3σ con buen
+            ranking y MAPE moderado).
+          </p>
+          <p>
+            <strong>P08 alto/medio/bajo</strong> es clasificación por terciles; no requiere otro tipo de modelo. Para
+            mejorar cifras: comuna en lugar de barrio, estacional u OLS, rango largo y excluir COVID.
+          </p>
+          {recs.length > 0 ? (
+            <>
+              <p>
+                <strong>Si el MAPE es alto:</strong>
+              </p>
+              <ul className="carga-recomendaciones-list">
+                {recs.map((t) => (
+                  <li key={t}>{t}</li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+        </GuiaDesplegable>
       )}
-      <details className="prioridad-ayuda-details carga-modelo-ayuda">
-        <summary>¿Cómo elegir el mejor modelo aquí?</summary>
-        <div className="muted small">
-          <p>{b.guia_eleccion_modelo}</p>
-          <p>
-            <strong>No hace falta otro tipo de modelo</strong> (clasificación/regresión distinta) para P08: la
-            categoría alto/medio/bajo ya es una clasificación relativa por terciles. Lo que importa es si el{' '}
-            <em>orden</em> entre territorios es estable (Spearman, # vol.).
-          </p>
-          <p>
-            <strong>Para mejorar cifras:</strong> use comuna (no barrio), estacional u OLS, rango largo (2018–2021),
-            excluir COVID. Modelos jerárquicos o reparto proporcional desde la sección 1 serían un trabajo futuro.
-          </p>
-        </div>
-      </details>
     </div>
   )
 }
@@ -842,7 +925,7 @@ const PRIORIDAD_COLUMNAS_AYUDA = [
     col: 'Delta prom.',
     titulo: 'Delta de promedios mensuales',
     texto:
-      'Por territorio: promedio de los últimos meses menos promedio del tramo anterior (ventana 6 meses si hay ≥ 12 meses en el periodo). Positivo = empeora. Solo valores ≥ 0 suman al índice; si el volumen es bajo, el score de tendencia se atenúa.',
+      'Por territorio: promedio(últimos N meses) − promedio(N meses previos). Con ≥ 12 meses: N = 6 (solo entran los últimos 12 al delta). Con 6–11 meses: N = mitad de la serie (mín. 3), delta atenuado. Positivo = empeora. Solo valores ≥ 0 suman al índice; bajo volumen atenúa el score Tend.',
   },
   {
     col: 'Part. %',
@@ -921,10 +1004,9 @@ function PrioridadSensibilidadAyuda({ meta }) {
   const s = meta?.sensibilidad_pesos
   if (!s?.variantes?.length) return null
   return (
-    <details className="prioridad-ayuda-details">
-      <summary>Estabilidad del top 5 ante otros pesos</summary>
-      <p className="muted small">{s.interpretacion}</p>
-      <ul className="prioridad-pesos-list muted small">
+    <GuiaDesplegable summary="Estabilidad del top 5 ante otros pesos">
+      <p>{s.interpretacion}</p>
+      <ul className="prioridad-pesos-list">
         {s.variantes.map((v) => (
           <li key={v.variante}>
             <strong>{v.variante.replace(/_/g, ' ')}</strong>: {v.coincidencias_con_base} de 5 territorios
@@ -932,7 +1014,7 @@ function PrioridadSensibilidadAyuda({ meta }) {
           </li>
         ))}
       </ul>
-    </details>
+    </GuiaDesplegable>
   )
 }
 
@@ -996,9 +1078,11 @@ function PrioridadInterpretacionComponentesGuia({ meta, filaLider, nivel }) {
   const pct = (k) => `${Math.round((pesos[k] ?? 0) * 100)} %`
 
   return (
-    <details className="prioridad-ayuda-details prioridad-componentes-guia">
-      <summary>Scores y índice — cómo leer Freq, Dens, Tend, Fatal y Part</summary>
-      <div className="muted small prioridad-componentes-guia-body">
+    <GuiaDesplegable
+      className="prioridad-componentes-guia"
+      summary="Scores y índice — cómo leer Freq, Dens, Tend, Fatal y Part"
+    >
+      <div className="prioridad-componentes-guia-body">
         <p>
           Los valores de la columna <strong>Componentes</strong> no son incidentes ni porcentajes del periodo: son
           puntajes <strong>0–100</strong> que comparan cada territorio con los demás del mismo nivel (comuna o barrio)
@@ -1055,7 +1139,7 @@ function PrioridadInterpretacionComponentesGuia({ meta, filaLider, nivel }) {
           </div>
         )}
       </div>
-    </details>
+    </GuiaDesplegable>
   )
 }
 
@@ -1064,9 +1148,8 @@ function PrioridadPesosAyuda({ meta }) {
   const tend = meta?.tendencia_componente
   if (!items?.length) return null
   return (
-    <details className="prioridad-ayuda-details">
-      <summary>¿Por qué estos pesos y el delta de promedios?</summary>
-      <ul className="prioridad-pesos-list muted small">
+    <GuiaDesplegable summary="¿Por qué estos pesos y el delta de promedios?">
+      <ul className="prioridad-pesos-list">
         {items.map((it) => (
           <li key={it.componente}>
             <strong>{Math.round(it.peso * 100)} %</strong> — {it.componente.replace(/_/g, ' ')}:{' '}
@@ -1075,23 +1158,28 @@ function PrioridadPesosAyuda({ meta }) {
         ))}
       </ul>
       {tend && (
-        <div className="muted small prioridad-ols-nota">
+        <div className="prioridad-ols-nota">
           <p>
-            <strong>Tendencia en la tabla:</strong> {tend.etiqueta}. {tend.por_que_delta ?? tend.por_que_ols}
+            <strong>Tendencia en la tabla:</strong> {tend.etiqueta}. {tend.por_que_delta}
+            {tend.reglas_ventana ? (
+              <>
+                {' '}
+                <strong>Ventana:</strong> {tend.reglas_ventana}
+              </>
+            ) : null}
           </p>
           <p>
             <strong>¿Por qué no estacional aquí?</strong> {tend.por_que_no_estacional}
           </p>
         </div>
       )}
-    </details>
+    </GuiaDesplegable>
   )
 }
 
 function PrioridadColumnasAyuda() {
   return (
-    <details className="prioridad-ayuda-details">
-      <summary>Cómo interpretar cada columna de la tabla</summary>
+    <GuiaDesplegable summary="Cómo interpretar cada columna de la tabla">
       <dl className="prioridad-columnas-dl">
         {PRIORIDAD_COLUMNAS_AYUDA.map((item) => (
           <div key={item.col} className="prioridad-dl-row">
@@ -1100,172 +1188,161 @@ function PrioridadColumnasAyuda() {
           </div>
         ))}
       </dl>
-    </details>
+    </GuiaDesplegable>
+  )
+}
+
+function PrioridadTerritorialGuia() {
+  return (
+    <GuiaDesplegable summary="Guía de la sección 2 — índice y ranking" className="prioridad-seccion-guia">
+      <p>
+        Ordena territorios por un <strong>índice compuesto</strong> con pesos fijos: frecuencia, densidad/km², delta de
+        promedios mensuales, % fatales y participación. No hay selector de modelo; la tendencia usa{' '}
+        <strong>delta de promedios</strong> (últimos N meses vs N anteriores), no regresión OLS.
+      </p>
+      <p>
+        Contraste <strong>Índice compuesto</strong> con <strong>Solo por frecuencia</strong> y la columna{' '}
+        <strong># vol.</strong> Las guías desplegables siguientes detallan columnas, pesos y scores Freq/Dens/Tend.
+      </p>
+      <p>
+        Complementa la sección 3 (carga proyectada hacia adelante) y la 1 (serie de ciudad). Alto en P05 no garantiza
+        alto en P08 si cambian horizonte o modelo de carga.
+      </p>
+    </GuiaDesplegable>
+  )
+}
+
+function ProyeccionMensualGuia() {
+  return (
+    <GuiaDesplegable summary="Guía de la sección 1 — modelos y lectura del gráfico" className="proyeccion-guia">
+      <p>
+        Proyecta la <strong>variable</strong> de los filtros (incidentes, víctimas o fatales) mes a mes. La línea roja
+        continúa el ajuste hacia el <strong>horizonte</strong>. Con <strong>μ±3σ</strong>, la proyección es la media
+        constante y la banda azul marca μ±3σ (control estadístico, no intervalo de confianza).
+      </p>
+      <p>
+        <strong>Modelos — cuándo probar cada uno:</strong>
+      </p>
+      <ul>
+        <li>
+          <strong>Estacional</strong> — primer intento con ≥ 12 meses; captura picos mensuales.
+        </li>
+        <li>
+          <strong>OLS</strong> — tendencia lineal; serie corta (mín. 2 meses).
+        </li>
+        <li>
+          <strong>Poisson</strong> — conteos enteros; compare con estacional si hay mucho ruido.
+        </li>
+        <li>
+          <strong>Media móvil</strong> — extrapola los últimos k meses (3, 6 o 12).
+        </li>
+        <li>
+          <strong>μ±3σ</strong> — línea base estable; confíe en el MAPE de la prueba hold-out, no en R².
+        </li>
+        <li>
+          <strong>ARIMA</strong> — mín. 12 meses; dependencia temporal mes a mes.
+        </li>
+        <li>
+          <strong>SARIMA</strong> — mín. 24 meses; estacionalidad anual explícita.
+        </li>
+      </ul>
+      <p>
+        Active <strong>meses de prueba</strong> (3 o 6) y revise el panel <strong>Prueba del modelo</strong>. Glosario
+        de R², MAPE, AIC y hold-out → «¿Qué significan estas métricas?» bajo el gráfico.
+      </p>
+    </GuiaDesplegable>
+  )
+}
+
+function CargaTerritorialGuia() {
+  return (
+    <GuiaDesplegable summary="Guía de la sección 3 — ranking, cifras y modelos" className="carga-guia">
+      <p>
+        <strong>Carga</strong> = suma de incidentes proyectados en el horizonte por territorio. Con μ±3σ, cada mes
+        futuro vale la media del territorio → carga ≈ μ × horizonte.
+      </p>
+      <p>
+        <strong>Dos lecturas distintas:</strong>
+      </p>
+      <ul>
+        <li>
+          <strong>Ranking (Spearman, # vol.)</strong> — ¿el territorio más cargado coincide con el de mayor volumen
+          histórico? Importa para P08 alto/medio/bajo.
+        </li>
+        <li>
+          <strong>Cifras absolutas (MAPE mediano)</strong> — ¿la suma proyectada acertó el orden de magnitud en la
+          prueba? Puede ser baja aunque el ranking sea bueno.
+        </li>
+      </ul>
+      <p>
+        <strong>Modelos:</strong> estacional si espera variación mensual; μ±3σ como línea base en ranking; OLS para
+        tendencia; media móvil conservadora. ARIMA/SARIMA exigen la misma historia que en la sección 1. No hay bandas
+        μ±3σ en esta sección.
+      </p>
+      <p>Tras elegir modelo, revise el panel de confianza y la guía de métricas que aparece debajo.</p>
+    </GuiaDesplegable>
   )
 }
 
 function PrediccionesFiltrosGuia() {
   return (
-    <details className="prioridad-ayuda-details page-intro-guide">
-      <summary>Guía para configurar los filtros</summary>
-      <div className="page-intro-guide-body muted small">
-        <p>
-          Los filtros del panel superior aplican a <strong>todos</strong> los bloques (fechas, territorio,
-          variable y exclusión COVID). Cada sección de predicción tiene su <strong>propio modelo</strong> y
-          horizonte; al cambiarlos se recalcula solo ese bloque. Tras cambiar filtros compartidos, pulse{' '}
-          <strong>Actualizar</strong>.
-        </p>
-        <ul>
-          <li>
-            <strong>Desde / Hasta:</strong> periodo histórico que alimenta el ajuste. Por defecto se carga el{' '}
-            <strong>último año con registros</strong>. Conviene al menos unos meses de historia; modelos estacionales
-            o por clase piden series más largas.
-          </li>
-          <li>
-            <strong>Comuna, barrio y clase:</strong> acotan el análisis. Deje «Todas» / «Todos» para ver la ciudad
-            completa (respetando el resto de filtros).
-          </li>
-          <li>
-            <strong>Territorio:</strong> <em>Registro Mede</em> usa comuna/barrio del expediente;{' '}
-            <em>Polígono PostGIS</em> usa la ubicación espacial del punto en el mapa.
-          </li>
-          <li>
-            <strong>Variable:</strong> qué magnitud se proyecta en la sección de proyección mensual (incidentes,
-            víctimas o víctimas fatales). Las demás secciones tienen su propia lógica (%, carga, patrones).
-          </li>
-          <li>
-            <strong>Excluir mar–ago 2020:</strong> omite esos meses del ajuste por el confinamiento COVID, sin
-            cambiar el rango visible del gráfico.
-          </li>
-          <li>
-            <strong>Modelo por sección:</strong> la proyección mensual (bloque 1), la proporción de fatales
-            (bloque 4) y la carga territorial (bloque 3) tienen selector de modelo propio. Los patrones día×hora
-            y día de semana (bloque 5) reutilizan el modelo y horizonte del bloque 1 para el total de
-            incidentes a repartir.
-          </li>
-        </ul>
-        <p>
-          <strong>Elegir modelo y fechas (proyección mensual)</strong>
-        </p>
-        <ul>
-          <li>
-            <strong>Rango de fechas:</strong> con más meses (por ejemplo 2018–2021) los modelos captan mejor la
-            estacionalidad. Con pocos meses algunos modelos no se activan o dan resultados inestables.
-          </li>
-          <li>
-            <strong>Meses de prueba:</strong> en la sección 1 puede reservar 3 o 6 meses al final del periodo. El
-            panel «Prueba del modelo» muestra qué tan bien habría anticipado esos meses.
-          </li>
-          <li>
-            <strong>Qué mirar:</strong> compare el ajuste bajo el gráfico con la prueba de meses reservados. Si el
-            ajuste se ve muy bueno pero la prueba sale mal, ese modelo no es el más adecuado.
-          </li>
-        </ul>
-        <p>
-          <strong>Consejos para elegir el modelo</strong>
-        </p>
-        <ul>
-          <li>
-            <strong>Proyección mensual:</strong>
-            <ul>
-              <li>
-                <strong>Estacional</strong> — buen punto de partida si hay al menos un año de historia: captura meses
-                altos/bajos (vacaciones, fin de año, etc.) además de la tendencia.
-              </li>
-              <li>
-                <strong>OLS</strong> — serie corta o solo le interesa una recta de tendencia; no reproduce picos
-                mensuales. Útil para una lectura rápida con pocos meses (mín. 2).
-              </li>
-              <li>
-                <strong>Poisson</strong> — conteos mensuales (sobre todo <strong>incidentes</strong>); adecuado cuando
-                los valores son enteros pequeños o moderados. Si la serie es muy irregular, compare con estacional.
-              </li>
-              <li>
-                <strong>Media móvil</strong> — extrapola «como los últimos k meses» (3, 6 o 12); suaviza ruido y evita
-                extrapolar tendencias fuertes. Requiere al menos k meses en el ajuste.
-              </li>
-              <li>
-                <strong>Media ± 3σ (μ±3σ)</strong> — proyección constante = media del periodo; bandas de control en
-                ±3 desviaciones estándar. Sirve para detectar meses atípicos (puntos rojos fuera de la banda) y como
-                línea base simple. No captura tendencia ni estacionalidad.
-              </li>
-              <li>
-                <strong>ARIMA</strong> — modela la dependencia temporal mes a mes (memoria de corto plazo y tendencia
-                con diferenciación). Requiere al menos <strong>12 meses</strong> con datos en el rango. Útil cuando OLS
-                o la media móvil no capturan bien la dinámica de la serie.
-              </li>
-              <li>
-                <strong>SARIMA</strong> — como ARIMA, pero con estacionalidad mensual (ciclo de 12 meses). Requiere al
-                menos <strong>24 meses</strong> (dos años completos) para estimar el patrón estacional con estabilidad.
-                Compare con <strong>Estacional</strong> si prefiere un modelo más interpretable con menos historia.
-              </li>
-            </ul>
-          </li>
-          <li>
-            <strong>Proporción de fatales:</strong> empiece por <strong>Estacional sobre %</strong>. Si el
-            volumen de víctimas cambia mucho entre meses, pruebe <strong>Logit con exposición</strong>; si
-            prefiere enlazar con la proyección de conteos, <strong>Ratio compuesto</strong>. Use la{' '}
-            <strong>prueba con meses reservados</strong> para decidir; el R² del gráfico suele ser modesto
-            y eso es normal en porcentajes tan pequeños. Los modelos avanzados (OLS, ARIMA…) rara vez aportan aquí.
-          </li>
-          <li>
-            <strong>Carga territorial:</strong> <strong>Estacional</strong> (recomendado) si proyecta
-            varios meses y espera estacionalidad; <strong>μ±3σ</strong> como línea base (media por territorio);{' '}
-            <strong>OLS</strong> para tendencia lineal de incidentes por
-            territorio; <strong>Media móvil</strong> para un escenario conservador basado en el tramo reciente;{' '}
-            <strong>ARIMA</strong> o <strong>SARIMA</strong> con los mismos mínimos de historia que en la proyección
-            mensual.
-          </li>
-          <li>
-            <strong>Patrones día×hora y día de semana:</strong> el modelo del bloque 1 define el total a
-            repartir; la forma del mapa sale del historial. Hereda el modelo elegido en la sección 1
-            (p. ej. SARIMA, estacional o μ±3σ).
-          </li>
-          <li>
-            <strong>Prioridad territorial (P05):</strong> el componente «tendencia» del índice usa <strong>OLS</strong> fijo
-            por ahora; la evaluación de modelos para esta sección se hará en una fase posterior.
-          </li>
-          <li>
-            <strong>Señales para cambiar de modelo:</strong> lea el mensaje de <em>interpretación del ajuste</em> bajo
-            el gráfico (R² / MAPE); active <strong>Excluir mar–ago 2020</strong> si el confinamiento distorsiona la
-            tendencia; amplíe fechas o pruebe estacional si OLS o MA quedan planos o muy alejados de la serie
-            observada.
-          </li>
-          <li>
-            <strong>ARIMA y SARIMA — ¿por qué piden más meses?</strong> No es un límite arbitrario del sistema: cada
-            modelo debe estimar varios parámetros (autoregresión, media móvil, diferenciación y, en SARIMA, componente
-            estacional con periodo 12). Con poca historia esos parámetros quedan inestables y la proyección puede
-            seguir el ruido de un mes atípico en lugar de un patrón real.
-            <ul>
-              <li>
-                <strong>ARIMA (mín. 12 meses):</strong> el ajuste usa ARIMA(2,1,3) por defecto; diferenciación consume
-                una observación y hay que estimar coeficientes AR y MA con datos suficientes; ~12 puntos es el piso habitual
-                en series temporales.
-              </li>
-              <li>
-                <strong>SARIMA (mín. 24 meses):</strong> para distinguir «enero sube porque es enero» de un pico puntual
-                hace falta ver <strong>dos ciclos anuales completos</strong> (2 × 12 meses). Con un solo año no se puede
-                separar estacionalidad de variación aleatoria.
-              </li>
-              <li>
-                <strong>Proporción de fatales (P07):</strong> además del mínimo del modelo, solo entran al ajuste los meses
-                con <strong>≥ 10 víctimas</strong> (el % sería demasiado inestable con menos volumen). Un rango de 18
-                meses en el calendario puede dejar solo 14 meses válidos — amplíe fechas o reduzca filtros territoriales
-                si el aviso de «serie insuficiente» persiste.
-              </li>
-            </ul>
-          </li>
-        </ul>
-        <p>
-          <strong>Cómo leer la bondad del ajuste</strong>
-        </p>
-        <BondadMetricasContenido />
-        <p>
-          Si un bloque queda vacío, amplíe fechas, quite filtros muy restrictivos o pruebe otro modelo. Las
-          proyecciones son escenarios orientativos, no predicciones con intervalo de confianza.
-        </p>
-      </div>
-    </details>
+    <GuiaDesplegable summary="Guía general — filtros compartidos y mapa de secciones" className="page-intro-guide">
+      <p>
+        Los filtros del panel superior aplican a <strong>todas</strong> las secciones. Los bloques 1, 3 y 4 tienen{' '}
+        <strong>modelo y horizonte propios</strong>; el bloque 5 hereda los de la sección 1. Tras cambiar fechas,
+        territorio, variable o COVID, pulse <strong>Actualizar</strong>.
+      </p>
+      <ul>
+        <li>
+          <strong>Desde / Hasta:</strong> periodo histórico del ajuste. Por defecto, último año con datos. Más meses
+          mejoran estacionalidad y la prueba hold-out.
+        </li>
+        <li>
+          <strong>Comuna, barrio, clase:</strong> acotan el análisis; «Todas» / «Todos» = ciudad según el resto de
+          filtros.
+        </li>
+        <li>
+          <strong>Territorio:</strong> <em>Registro Mede</em> (comuna del expediente) o <em>Polígono PostGIS</em>{' '}
+          (ubicación del punto).
+        </li>
+        <li>
+          <strong>Variable:</strong> solo afecta la proyección mensual (sección 1). Las demás secciones tienen
+          magnitud fija (% fatales, incidentes por territorio, patrones).
+        </li>
+        <li>
+          <strong>Excluir mar–ago 2020:</strong> omite esos meses del cálculo; el gráfico puede seguir mostrándolos.
+        </li>
+      </ul>
+      <p>
+        <strong>Las cinco secciones:</strong>
+      </p>
+      <dl className="prioridad-columnas-dl predicciones-mapa-secciones">
+        <div className="prioridad-dl-row">
+          <dt>1 · Proyección mensual</dt>
+          <dd>Cuántos incidentes o víctimas por mes. Selector de modelo. Guía y métricas bajo el gráfico.</dd>
+        </div>
+        <div className="prioridad-dl-row">
+          <dt>2 · Prioridad territorial (P05)</dt>
+          <dd>Ranking con fórmula fija (sin modelo). Índice compuesto y guías de columnas/componentes.</dd>
+        </div>
+        <div className="prioridad-dl-row">
+          <dt>3 · Carga territorial (P08)</dt>
+          <dd>Suma proyectada por comuna o barrio. Ranking (Spearman) y cifras (MAPE) por separado.</dd>
+        </div>
+        <div className="prioridad-dl-row">
+          <dt>4 · Proporción fatales (P07)</dt>
+          <dd>% de víctimas fatales mensual. Modelos distintos a conteos; μ±3σ no aplica aquí.</dd>
+        </div>
+        <div className="prioridad-dl-row">
+          <dt>5 · Patrones día×hora (P12·P13)</dt>
+          <dd>Reparto temporal del total de la sección 1. Sin selector propio de modelo.</dd>
+        </div>
+      </dl>
+      <p>
+        Cada bloque incluye una guía desplegable con el detalle que le corresponde. R², MAPE y hold-out se explican en
+        las secciones 1 y 4 en «¿Qué significan estas métricas?».
+      </p>
+    </GuiaDesplegable>
   )
 }
 
@@ -1273,40 +1350,6 @@ function precisionDesdeMape(mape) {
   const n = Number(mape)
   if (mape == null || Number.isNaN(n)) return null
   return Math.max(0, Math.min(100, Math.round((100 - n) * 10) / 10))
-}
-
-function HoldoutConfiabilidadGuia() {
-  return (
-    <details className="prioridad-ayuda-details holdout-guia-details">
-      <summary>¿Cómo funciona la prueba del modelo?</summary>
-      <div className="muted small holdout-guia-body">
-        <p>
-          Al final del periodo que eligió, el sistema aparta 3 o 6 meses, entrena el modelo <em>sin</em> esos meses y
-          calcula qué habría predicho. Luego compara con lo que realmente ocurrió. Es como preguntar: «si no hubiera
-          visto estos meses, ¿los habría acertado?»
-        </p>
-        <p>
-          <strong>Ajuste al historial vs prueba:</strong> bajo el gráfico ve si el modelo sigue bien la serie pasada.
-          En este panel ve si también acierta en meses recientes que no usó al entrenar. Para decidir qué modelo usar,
-          la prueba suele ser más útil que el R² del gráfico.
-        </p>
-        <p>
-          <strong>Rango de fechas:</strong> con pocos meses (menos de un año) muchos modelos no alcanzan a estimar la
-          estacionalidad. ARIMA pide al menos unos 12 meses de ajuste; SARIMA, unos 24. Si activó «Excluir mar–ago
-          2020», esos meses no entran al cálculo aunque sigan visibles en el gráfico.
-        </p>
-        <p>
-          <strong>Precisión estimada:</strong> se obtiene restando el MAPE de 100 %. Un MAPE de 15 % en la prueba
-          equivale a una precisión de unos 85 %. Como referencia, un MAPE de 20 % o menos (precisión de al menos 80 %)
-          se considera aceptable para este tipo de proyección mensual.
-        </p>
-        <p>
-          Si el ajuste al historial se ve excelente pero la prueba sale mal, el modelo probablemente se está
-          ajustando demasiado al pasado. Pruebe estacional, media móvil o amplíe el rango de fechas.
-        </p>
-      </div>
-    </details>
-  )
 }
 
 function HoldoutEvaluacionPanel({ meta, unidadPct = false }) {
@@ -1326,24 +1369,24 @@ function HoldoutEvaluacionPanel({ meta, unidadPct = false }) {
 
   if (!h.activo) {
     return (
-      <>
-        <details className="holdout-panel">
-          <summary className="small">Prueba del modelo (no disponible)</summary>
-          <p className="muted small">{h.motivo || 'No hay datos suficientes para hacer la prueba con meses reservados.'}</p>
-        </details>
-        <HoldoutConfiabilidadGuia />
-      </>
+      <details className="holdout-panel">
+        <summary className="small">Prueba del modelo (no disponible)</summary>
+        <p className="muted small">{h.motivo || 'No hay datos suficientes para hacer la prueba con meses reservados.'}</p>
+      </details>
     )
   }
 
   return (
-    <>
-      <details className="holdout-panel">
-        <summary className="small">
-          Prueba del modelo — últimos {h.holdout_meses} meses reservados
-        </summary>
-        <div className="holdout-panel-body">
-          <p className="muted small">{h.metodo}</p>
+    <details className="holdout-panel">
+      <summary className="small">
+        Prueba del modelo — últimos {h.holdout_meses} meses reservados
+      </summary>
+      <div className="holdout-panel-body">
+        <p className="muted small">
+          El sistema entrena <em>sin</em> los últimos {h.holdout_meses} meses y compara la predicción con lo observado.
+          Más detalle en «¿Qué significan estas métricas?».
+        </p>
+        <p className="muted small">{h.metodo}</p>
           <p className="muted small">
             Entrenado hasta <strong>{h.ultimo_mes_entrenamiento}</strong> · comparado con{' '}
             <strong>{h.primer_mes_prueba}</strong> — <strong>{h.ultimo_mes_prueba}</strong>
@@ -1413,8 +1456,6 @@ function HoldoutEvaluacionPanel({ meta, unidadPct = false }) {
           ) : null}
         </div>
       </details>
-      <HoldoutConfiabilidadGuia />
-    </>
   )
 }
 
@@ -1502,113 +1543,63 @@ function ProporcionCoefResumen({ meta }) {
 
 function PatronesGuiaInterpretacion() {
   return (
-    <details className="prioridad-ayuda-details patrones-guia-details">
-      <summary>¿Cómo leer los patrones proyectados?</summary>
-      <div className="muted small patrones-guia-body">
-        <p>
-          Este bloque responde <strong>cuándo</strong> del horizonte elegido podrían concentrarse
-          más incidentes. Toma el total que proyecta el <strong>bloque 1</strong> (modelo y horizonte
-          de proyección mensual, siempre sobre <strong>incidentes</strong>) y lo reparte según cómo se
-          distribuyeron en el periodo que filtró arriba.
-        </p>
-        <p>
-          <strong>Matriz día × hora (P12)</strong> — cada celda es una combinación día de la semana
-          y hora. Las celdas más oscuras en «Proyección» son las franjas con más carga esperada.
-          «Periodo seleccionado» muestra lo que ya ocurrió; «Diferencia» resta periodo de proyección
-          celda a celda (no confundir con comparar mes a mes).
-        </p>
-        <p>
-          <strong>Por día de semana (P13)</strong> — resume el mismo total en siete barras. Sirve
-          para ver si la semana proyectada sigue cargándose, por ejemplo, en martes o en fin de semana.
-        </p>
-        <p>
-          <strong>Modelo:</strong> no hay selector aquí. Cambie modelo y horizonte en la sección 1; el
-          patrón relativo (franja líder, p. ej. martes en la mañana) suele mantenerse porque el reparto
-          sigue el historial del periodo filtrado.
-        </p>
-        <p>
-          <strong>Qué sí puede hacer con esto</strong>
-        </p>
-        <ul>
-          <li>Priorizar turnos o controles en las franjas más oscuras del heatmap.</li>
-          <li>Comparar si el patrón proyectado se parece al del periodo filtrado.</li>
-          <li>Combinar con carga territorial (bloque 3) para tener «dónde» y «cuándo».</li>
-        </ul>
-        <p>
-          <strong>Qué no hace</strong>
-        </p>
-        <ul>
-          <li>No predice un accidente individual ni probabilidad por persona.</li>
-          <li>No aprende un modelo aparte por cada celda: extrapola el patrón del periodo.</li>
-          <li>Si el aviso dice que no hay modelo mensual, amplíe fechas o quite filtros muy estrechos.</li>
-        </ul>
-      </div>
-    </details>
+    <GuiaDesplegable summary="Guía de la sección 5 — patrones día×hora y día de semana" className="patrones-guia-details">
+      <p>
+        Responde <strong>cuándo</strong> del horizonte podrían concentrarse más incidentes. Toma el total de la{' '}
+        <strong>sección 1</strong> (modelo y horizonte de proyección mensual, siempre sobre incidentes) y lo reparte
+        según el historial del periodo filtrado (suavizado Laplace).
+      </p>
+      <p>
+        <strong>Matriz día × hora (P12):</strong> celdas más oscuras en «Proyección» = franjas con más carga. «Periodo
+        seleccionado» = lo observado; «Diferencia» resta periodo de proyección celda a celda.
+      </p>
+      <p>
+        <strong>Por día de semana (P13):</strong> resume el mismo total en siete barras (p. ej. si la semana se carga en
+        martes o fin de semana).
+      </p>
+      <p>
+        <strong>Modelo y horizonte</strong> se cambian en la sección 1; el patrón relativo suele mantenerse porque el
+        reparto sigue el historial. Con μ±3σ el total es μ × horizonte; la forma del mapa casi no cambia entre modelos.
+      </p>
+      <p>
+        <strong>Útil para:</strong> priorizar turnos en franjas líderes; contrastar patrón proyectado vs periodo;
+        combinar con carga territorial (sección 3) para «dónde» y «cuándo».
+      </p>
+      <p>
+        <strong>No hace:</strong> predicción individual ni probabilidad por persona; no aprende un modelo por celda. Si
+        falta modelo mensual, amplíe fechas o quite filtros estrechos en la sección 1.
+      </p>
+    </GuiaDesplegable>
   )
 }
 
 function ProporcionGuiaInterpretacion() {
   return (
-    <details className="prioridad-ayuda-details proporcion-guia-details">
-      <summary>¿Cómo leer la proporción de fatales?</summary>
-      <div className="muted small proporcion-guia-body">
-        <p>
-          Este bloque no dice cuántos accidentes habrá, sino <strong>qué tan grave fue el mes</strong> en
-          términos relativos: de todas las víctimas registradas ese mes, ¿qué porcentaje murió? En Medellín
-          ese valor suele ser bajo (menos del 2 %), pero sube o baja según la época del año y los eventos
-          puntuales.
-        </p>
-        <p>
-          <strong>Línea azul</strong> — lo que pasó de verdad cada mes.{' '}
-          <strong>Línea roja</strong> — lo que el modelo «entiende» del pasado y extrapola unos meses
-          adelante. La <strong>zona rosada</strong>, si aparece, es un margen aproximado de error; no es un
-          rango oficial de predicción.
-        </p>
-        <p>
-          <strong>Qué modelo elegir</strong>
-        </p>
-        <ul>
-          <li>
-            <strong>Estacional sobre %</strong> (recomendado) — si quiere ver qué meses del calendario
-            suelen ser más graves, además de una tendencia suave.
-          </li>
-          <li>
-            <strong>Logit con exposición</strong> — cuando el número de víctimas varía mucho de un mes a
-            otro; los meses con más víctimas pesan más en el cálculo.
-          </li>
-          <li>
-            <strong>Ratio compuesto</strong> — proyecta por separado cuántas víctimas y cuántas fatales
-            podrían haber, y luego calcula el %. Útil si ya confía en la lógica de la proyección mensual.
-          </li>
-          <li>
-            <strong>Media móvil</strong> — lectura conservadora: «como los últimos meses», sin estacionalidad
-            elaborada.
-          </li>
-        </ul>
-        <p>
-          Los modelos bajo «avanzados» (OLS, logit simple, ARIMA) casi nunca funcionan bien aquí; están
-          por comparación, no como recomendación.
-        </p>
-        <p>
-          <strong>Prueba con meses reservados</strong> — despliegue el panel bajo el gráfico. El sistema
-          entrena sin los últimos meses y mira si hubiera acertado el %. Si el error en esa prueba supera
-          ~20 %, tome la proyección con cautela aunque el gráfico se vea bien ajustado.
-        </p>
-        <p>
-          <strong>Antes de confiar en el resultado</strong>
-        </p>
-        <ul>
-          <li>Deje activado <strong>Excluir mar–ago 2020</strong> salvo que quiera estudiar el confinamiento.</li>
-          <li>Prefiera al menos <strong>dos años</strong> de historia (unos 24 meses con datos válidos).</li>
-          <li>Si filtra una sola comuna o clase, el % puede saltar mucho mes a mes; use el desglose por comuna solo como exploración.</li>
-          <li>Un mes con menos de 10 víctimas no entra al ajuste (el % sería demasiado inestable).</li>
-        </ul>
-        <p>
-          Complemente con el bloque 1 (cuántos fatales en total) y el bloque 2 (prioridad territorial).
-          Ninguno de los tres sustituye a los otros.
-        </p>
-      </div>
-    </details>
+    <GuiaDesplegable summary="Guía de la sección 4 — proporción de fatales" className="proporcion-guia-details">
+      <p>
+        No dice cuántos accidentes habrá, sino <strong>qué tan grave fue el mes</strong>: de las víctimas registradas,
+        ¿qué porcentaje murió? En Medellín suele ser bajo (&lt; 2 %), pero varía por época y eventos puntuales.
+      </p>
+      <p>
+        <strong>Línea azul</strong> — % observado cada mes. <strong>Línea roja</strong> — ajuste y proyección del
+        modelo. La <strong>zona rosada</strong>, si aparece, es margen aproximado de error, no intervalo oficial.
+      </p>
+      <p>
+        <strong>Modelos recomendados</strong> (selector de esta sección): <strong>Estacional sobre %</strong> (meses del
+        calendario más graves); <strong>Logit con exposición</strong> (meses con más víctimas pesan más);{' '}
+        <strong>Ratio compuesto</strong> (proyecta fatales y víctimas por separado, luego el cociente);{' '}
+        <strong>Media móvil</strong> (lectura conservadora). Los modelos avanzados (OLS, ARIMA…) rara vez aportan aquí.{' '}
+        <strong>μ±3σ no está disponible</strong> porque la variable es un porcentaje.
+      </p>
+      <p>
+        <strong>Antes de confiar:</strong> excluir mar–ago 2020 salvo estudio del confinamiento; preferir ≥ 2 años de
+        historia; meses con &lt; 10 víctimas no entran al ajuste. Métricas y prueba hold-out → «¿Qué significan estas
+        métricas?» y panel «Prueba del modelo».
+      </p>
+      <p>
+        Complementa la sección 1 (conteos totales) y la 2 (prioridad territorial). Ninguna sustituye a las otras.
+      </p>
+    </GuiaDesplegable>
   )
 }
 
@@ -1616,14 +1607,11 @@ function ProporcionUmbralesR2({ meta }) {
   const u = meta?.umbrales_r2_p07
   if (!u) return null
   return (
-    <>
-      <p className="muted small proporcion-umbrales-r2">
-        <strong>Referencia de R² en este bloque:</strong> bueno {u.bueno}; moderado {u.moderado}; bajo{' '}
-        {u.bajo}. En porcentajes tan pequeños es normal quedarse en «moderado»; mire también la prueba con
-        meses reservados.
-      </p>
-      <BondadMetricasGuia meta={meta} />
-    </>
+    <p className="muted small proporcion-umbrales-r2">
+      <strong>Referencia de R² en este bloque:</strong> bueno {u.bueno}; moderado {u.moderado}; bajo{' '}
+      {u.bajo}. En porcentajes tan pequeños es normal quedarse en «moderado»; mire también la prueba con
+      meses reservados.
+    </p>
   )
 }
 
@@ -2523,6 +2511,7 @@ export function Predicciones() {
             Evalúe aquí el modelo que mejor ajuste la serie mensual de la variable seleccionada en los filtros
             compartidos.
           </p>
+          <ProyeccionMensualGuia />
           <SeccionModeloToolbar
             modelo={modeloPred}
             onModeloChange={setModeloPred}
@@ -2604,7 +2593,7 @@ export function Predicciones() {
               </p>
               <BondadInterpretacion meta={metaActiva} />
               <BondadConsejoModelo meta={metaActiva} />
-              <BondadMetricasGuia incluirHoldout />
+              <BondadMetricasGuia meta={metaActiva} incluirHoldout />
               <HoldoutEvaluacionPanel meta={metaActiva} />
             </>
           )}
@@ -2736,6 +2725,7 @@ export function Predicciones() {
           <strong>nivel territorial</strong> (comuna o barrio) y, si quiere contrastar, «Ordenar por» índice o solo
           volumen.
         </p>
+        <PrioridadTerritorialGuia />
         {prioridad?.meta && <PrioridadNotasContexto meta={prioridad.meta} />}
         {prioridad?.meta && <PrioridadAlertaLiderazgo meta={prioridad.meta} />}
         {prioridad?.meta && <PrioridadPesosAyuda meta={prioridad.meta} />}
@@ -2872,6 +2862,7 @@ export function Predicciones() {
           {cargaEsperada?.meta?.diferencia_p05 ??
             'P05 mezcla historial y gravedad; P08 solo proyecta incidentes hacia adelante.'}
         </p>
+        <CargaTerritorialGuia />
         <div className="seccion-controles-stack">
           <div className="predicciones-toolbar seccion-modelo-toolbar">
             <label>
@@ -3162,6 +3153,7 @@ export function Predicciones() {
           <>
             <ProporcionBondadVisible meta={metaProporcion} />
             <BondadConsejoModelo meta={metaProporcion} />
+            <BondadMetricasGuia meta={metaProporcion} incluirHoldout />
             <HoldoutEvaluacionPanel meta={metaProporcion} unidadPct />
             <p className="muted small">
               <ProporcionCoefResumen meta={metaProporcion} />

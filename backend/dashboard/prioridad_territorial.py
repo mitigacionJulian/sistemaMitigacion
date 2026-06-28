@@ -4,7 +4,7 @@ P05 — Índice de prioridad territorial compuesto (comuna o barrio).
 Combina (con pesos explícitos en meta):
   - frecuencia de incidentes en el periodo;
   - densidad de incidentes por km² (polígono oficial);
-  - tendencia mensual (pendiente OLS, atenuada con series cortas);
+  - tendencia mensual (delta de promedios en ventana móvil, atenuada con series cortas);
   - proporción de víctimas fatales;
   - participación en el total de incidentes del periodo.
 
@@ -111,9 +111,16 @@ TENDENCIA_COMPONENTE_META: dict[str, str] = {
     "etiqueta": "Delta de promedios mensuales (ventana móvil)",
     "por_que_delta": (
         "Por cada territorio se comparan dos tramos de la serie mensual de incidentes: "
-        "promedio de los últimos N meses menos promedio de los N meses anteriores "
-        f"(N = {DELTA_VENTANA_MESES} si hay ≥ 12 meses; si no, la mitad de la serie). "
+        "promedio de los últimos N meses menos promedio de los N meses anteriores. "
         "Valor positivo = empeora (más incidentes recientes). Solo deltas ≥ 0 entran al índice."
+    ),
+    "reglas_ventana": (
+        f"Con ≥ {MIN_MESES_TENDENCIA_PLENA} meses en la serie: N = {DELTA_VENTANA_MESES} fijo "
+        f"(últimos {DELTA_VENTANA_MESES} vs los {DELTA_VENTANA_MESES} previos; "
+        f"los meses anteriores a ese bloque de {2 * DELTA_VENTANA_MESES} no entran al delta). "
+        f"Con {MIN_MESES_TENDENCIA}–{MIN_MESES_TENDENCIA_PLENA - 1} meses: N = mitad de la serie "
+        f"(mín. {DELTA_VENTANA_MIN}) y el delta se atenúa × n/{MIN_MESES_TENDENCIA_PLENA}. "
+        f"Menos de {MIN_MESES_TENDENCIA} meses: sin delta."
     ),
     "por_que_no_estacional": (
         "La estacionalidad y la proyección formal están en la sección 1 (proyección mensual) "

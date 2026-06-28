@@ -1,5 +1,6 @@
 /**
  * Tabla de respaldo bajo gráficos de serie temporal (sin etiquetas en cada punto).
+ * En la UI va colapsada por defecto; en reportes use colapsable={false}.
  */
 
 function fmtNum(value, { decimales = 0, sufijo = '' } = {}) {
@@ -9,16 +10,14 @@ function fmtNum(value, { decimales = 0, sufijo = '' } = {}) {
   return `${n.toLocaleString('es-CO', { maximumFractionDigits: decimales })}${sufijo}`
 }
 
-export function SerieLineChartDatosTabla({
-  data = [],
-  variant = 'conteo',
-  variableLabel = 'Observados',
-  showBandas3Sigma = false,
-  className = '',
-  caption = 'Datos mes a mes (valores del gráfico)',
+function SerieLineChartDatosTablaInner({
+  data,
+  variant,
+  variableLabel,
+  showBandas3Sigma,
+  className,
+  caption,
 }) {
-  if (!data?.length) return null
-
   const esProporcion = variant === 'proporcion'
 
   return (
@@ -98,5 +97,45 @@ export function SerieLineChartDatosTabla({
         </table>
       </div>
     </div>
+  )
+}
+
+export function SerieLineChartDatosTabla({
+  data = [],
+  variant = 'conteo',
+  variableLabel = 'Observados',
+  showBandas3Sigma = false,
+  className = '',
+  caption = 'Datos mes a mes (valores del gráfico)',
+  colapsable = true,
+  defaultAbierta = false,
+}) {
+  if (!data?.length) return null
+
+  if (!colapsable) {
+    return (
+      <SerieLineChartDatosTablaInner
+        data={data}
+        variant={variant}
+        variableLabel={variableLabel}
+        showBandas3Sigma={showBandas3Sigma}
+        className={className}
+        caption={caption}
+      />
+    )
+  }
+
+  return (
+    <details className="serie-datos-tabla-detalle" open={defaultAbierta || undefined}>
+      <summary className="muted small">{caption}</summary>
+      <SerieLineChartDatosTablaInner
+        data={data}
+        variant={variant}
+        variableLabel={variableLabel}
+        showBandas3Sigma={showBandas3Sigma}
+        className={className}
+        caption={null}
+      />
+    </details>
   )
 }

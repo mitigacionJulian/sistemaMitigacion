@@ -64,7 +64,10 @@ const MODELO_LABELS = {
   estacional: 'Estacional',
   poisson: 'Poisson log-lineal',
   media_movil: 'Media móvil simple',
+  tres_sigma: 'Media ± 3σ (μ±3σ)',
   logistica: 'Logit-lineal',
+  logit_offset: 'Logit con exposición',
+  ratio_compuesto: 'Ratio compuesto',
   arima: 'ARIMA',
   sarima: 'SARIMA',
 }
@@ -444,8 +447,7 @@ export function ReportePredicciones({ cuerpo }) {
             </>
           )}
           {matriz?.resumen?.top_celdas?.length > 0 && (
-            <details className="reporte-tabla-detalle">
-              <summary className="muted small">Ver top celdas día × hora</summary>
+            <>
               <h3 className="reporte-tops-title">Top celdas día × hora (proyectado)</h3>
               <ReporteTable
                 columns={[
@@ -473,7 +475,7 @@ export function ReportePredicciones({ cuerpo }) {
                 ]}
                 rows={matriz.resumen.top_celdas}
               />
-            </details>
+            </>
           )}
         </ReporteSection>
       )}

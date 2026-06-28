@@ -9,6 +9,7 @@ backend/**/__pycache__/
 backend/.pytest_cache/
 backend/allure-results/
 backend/allure-report/
+backend/.pruebas_runner_state.json
 backend/staticfiles/
 backend/db.sqlite3
 backend/arbol.txt
@@ -57,13 +58,15 @@ AGENTS.md
 .aider*
 **/.aider*
 
-# --- Documentación interna, memoria de grado y contexto de chat ---
-# Toda la carpeta docs/ (Markdown, prompts, SQL de trabajo, diagramas privados)
-docs/
+# --- Documentación del proyecto (versionada en Git) ---
+# Shapefiles locales pesados (opcional; no versionar):
+docs/shp/
 
-# Markdown suelto fuera de docs/ (estudio, bitácora, guías — no publicar)
+# Markdown suelto fuera de docs/ y evaluaciones/ (bitácora, notas — no publicar)
 **/*.md
 !README.md
+!docs/**/*.md
+!evaluaciones/**/*.md
 
 # Prompts y contexto explícito (por si quedan fuera de docs/)
 **/pront.txt

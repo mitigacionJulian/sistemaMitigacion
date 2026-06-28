@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   createAdminUsuario,
   deleteAdminUsuario,
@@ -222,9 +223,14 @@ export function AdminUsuarios() {
           </p>
         </div>
         {modo === 'lista' && (
-          <button type="button" className="btn btn-primary" onClick={abrirCrear}>
-            Nuevo usuario
-          </button>
+          <div className="admin-pruebas-header-actions">
+            <Link to="/admin/pruebas" className="btn btn-secondary">
+              Pruebas Allure
+            </Link>
+            <button type="button" className="btn btn-primary" onClick={abrirCrear}>
+              Nuevo usuario
+            </button>
+          </div>
         )}
       </header>
 

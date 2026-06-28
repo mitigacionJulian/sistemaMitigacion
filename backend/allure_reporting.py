@@ -1,5 +1,11 @@
 """
-Etiquetado automático Allure para la suite pytest de ViaData.
+Etiquetado automático Allure (JSON) para la suite pytest de ViaData.
+
+Los archivos *-result.json en allure-results/ alimentan:
+  · Panel administrador /admin/pruebas (UI)
+  · Reporte imprimible/PDF (sección pruebas)
+
+No requiere Node.js ni Java. El reporte HTML oficial de Allure (consola) es opcional.
 
 Se invoca desde conftest.py en pytest_runtest_setup (sin decorar cada test a mano).
 """
@@ -13,6 +19,7 @@ _FEATURE_BY_FILE: dict[str, tuple[str, str, str]] = {
     # accounts
     "test_auth_api": ("Autenticación JWT y registro", "Autenticación y roles", "—"),
     "test_admin_api": ("API administración de usuarios", "Autenticación y roles", "—"),
+    "test_admin_pruebas_api": ("Panel admin — pruebas del sistema", "Autenticación y roles", "—"),
     "test_predicciones_permission": ("Permisos módulo predicciones", "Autenticación y roles", "—"),
     # agent
     "test_agent_api": ("Chat Gemini y herramientas", "Asistente IA", "—"),

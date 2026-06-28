@@ -56,9 +56,12 @@ export async function apiFetch(path, options = {}) {
     touchActivity()
   }
 
+  const credentials = options.credentials ?? 'omit'
+  const { credentials: _c, ...restOptions } = options
+
   let r = await fetch(`${API_PREFIX}${path}`, {
-    ...options,
-    credentials: 'omit',
+    ...restOptions,
+    credentials,
     headers,
     ...(method === 'GET' ? { cache: 'no-store' } : {}),
   })
@@ -68,8 +71,8 @@ export async function apiFetch(path, options = {}) {
     if (ok) {
       headers.set('Authorization', `Bearer ${getAccessToken()}`)
       r = await fetch(`${API_PREFIX}${path}`, {
-        ...options,
-        credentials: 'omit',
+        ...restOptions,
+        credentials,
         headers,
         ...(method === 'GET' ? { cache: 'no-store' } : {}),
       })
@@ -607,4 +610,23 @@ export async function updateAdminUsuario(id, payload) {
 export async function deleteAdminUsuario(id) {
   const r = await apiFetch(`/admin/usuarios/${id}/`, { method: 'DELETE' })
   return parseAdminResponse(r, 'No se pudo eliminar el usuario.')
+}
+
+export async function fetchAdminPruebasEstado() {
+  const r = await apiFetch('/admin/pruebas/')
+  return parseAdminResponse(r, 'No se pudo cargar el estado de pruebas.')
+}
+
+export async function iniciarAdminPruebas() {
+  const r = await apiFetch('/admin/pruebas/ejecutar/', { method: 'POST' })
+  if (r.status === 202) return r.json()
+  return parseAdminResponse(r, 'No se pudo iniciar la ejecución de pruebas.')
+}
+
+export async function fetchAdminPruebasReporte({ titulo = '', notas = '' }) {
+  const r = await apiFetch('/admin/pruebas/reporte/', {
+    method: 'POST',
+    body: JSON.stringify({ titulo, notas }),
+  })
+  return parseAdminResponse(r, 'No se pudo generar el reporte de pruebas.')
 }

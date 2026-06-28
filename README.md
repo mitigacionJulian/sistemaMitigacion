@@ -13,7 +13,7 @@ Sistema web para visualización y análisis de accidentalidad vial (caso de estu
 | Frontend | **React 19**, **Vite**, **React Router** |
 | Mapa | **Leaflet**, react-leaflet, markercluster, heat, area-selection, **topojson-client** |
 | Gráficos | **Recharts**; zoom: **react-zoom-pan-pinch** |
-| Reportes | Recharts + **html2canvas** (mapa) + CSS `@media print` |
+| Reportes | Recharts + **html2canvas** (mapa) + CSS `@media print` (tablero, mapa, predicciones, **pruebas**) |
 | IA | **Google Gemini API** (HTTP/`urllib`, function calling) |
 | Pruebas | pytest, pytest-django |
 
@@ -21,7 +21,7 @@ No introducir otra pila (p. ej. otro framework backend o mapa) sin acuerdo con e
 
 ### Librerías por sección (sustentación)
 
-Documentación detallada en **`docs/LIBRERIAS_Y_SECCIONES.md`** (carpeta local, no en Git remoto):
+Documentación detallada en **`docs/`** (versionada en Git; índice en **`docs/README.md`**):
 
 - Qué librería usa cada pantalla (Tablero, Mapa, Predicciones, Reportes, Admin, Asistente).
 - Qué modelos usan NumPy vs statsmodels vs SQL puro.
@@ -40,6 +40,7 @@ copy .env.example .env   # Windows
 - **Con Docker:** `POSTGRES_DB=mitigacion_accidentes`, misma `POSTGRES_PASSWORD`; procedimiento en **`docs/MANUAL_INSTALACION_EJECUCION.md`** §8 (local) si tiene copia en `docs/`.
 - **JWT / auth:** `JWT_ACCESS_MINUTES` (15), `JWT_REFRESH_DAYS`, `FRONTEND_URL`, `PASSWORD_RESET_TOKEN_HOURS` (ver `.env.example`).
 - **Asistente IA:** `GEMINI_API_KEY` (obligatoria para `/agente`), `AGENT_MODEL_FLASH`, `AGENT_CACHE_TTL`, `AGENT_DAILY_LIMIT_PER_IP` (ver `.env.example`).
+- **Panel admin — pruebas:** `DJANGO_DEBUG=1` habilita ejecución de pytest desde `/admin/pruebas`; `ALLOW_ADMIN_TEST_RUNNER=1` fuerza o desactiva ese botón de forma explícita (ver `.env.example`).
 
 ## Inicio rápido (desarrollo local habitual)
 
@@ -66,12 +67,12 @@ API: `http://127.0.0.1:8000` · Frontend: `http://127.0.0.1:5173` (proxy `/api` 
 
 ## Acceso y roles
 
-| Rol | Tablero / Mapa / Asistente | Predicciones / Reportes | Gestión usuarios |
-|-----|------------------------------|-------------------------|------------------|
+| Rol | Tablero / Mapa / Asistente | Predicciones / Reportes | Administración |
+|-----|------------------------------|-------------------------|----------------|
 | Sin login | Sí | No | No |
 | Ciudadano | Sí | No | No |
 | Analista | Sí | Sí | No |
-| Administrador | Sí | Sí | Sí (`/admin/usuarios`) |
+| Administrador | Sí | Sí | Usuarios (`/admin/usuarios`) y pruebas (`/admin/pruebas`) |
 | Autoridad | Sí (perfil reservado) | No* | No |
 
 \*Rol definido en BD para extensión futura; hoy mismo alcance que ciudadano en la UI.
@@ -85,18 +86,18 @@ API: `http://127.0.0.1:8000` · Frontend: `http://127.0.0.1:5173` (proxy `/api` 
 
 | Carpeta / archivo | Rol |
 |-------------------|-----|
-| `backend/accounts/` | JWT, roles, admin API usuarios |
+| `backend/accounts/` | JWT, roles, admin API usuarios y **panel de pruebas** |
 | `backend/dashboard/` | Indicadores, predicciones, mapa (SQL/NumPy/statsmodels) |
 | `backend/agent/` | Asistente Gemini + herramientas |
 | `backend/reports/` | Payload de reportes |
 | `frontend/src/pages/` | Pantallas por ruta |
 | `frontend/src/map/` | Leaflet, captura, TopoJSON |
-| `evaluaciones/` | `EVALUACION_MODULO_PREDICCIONES.md` + CSV de evaluación de modelos |
+| `evaluaciones/` | Evaluación modelos Predicciones; **`LEEME_PRUEBAS_SISTEMA.txt`** (panel admin pruebas) |
 | `mede_pipeline_guiado.py`, `mede_limpieza.py`, … | ETL Mede (pandas) |
 
-## Documentación local (`docs/`)
+## Documentación (`docs/`)
 
-La carpeta **`docs/`** está en `.gitignore` (memoria de grado). Mantenga copia en su máquina/USB:
+La carpeta **`docs/`** está **versionada en Git** (Markdown y SQL). Índice: **`docs/README.md`**.
 
 | Documento | Contenido |
 |-----------|-----------|
@@ -104,13 +105,17 @@ La carpeta **`docs/`** está en `.gitignore` (memoria de grado). Mantenga copia 
 | `docs/DOCUMENTO_TECNICO_SISTEMA.md` | Arquitectura y APIs |
 | `docs/GUIA_SUSTENTACION_COMPLETA.md` | Demo, fórmulas y FAQ integral (sustentación) |
 | `docs/GUIA_SUSTENTACION_LIBRERIAS.md` | Respuestas cortas para el jurado |
+| `docs/DOCUMENTACION_PRUEBAS_SOFTWARE.md` | Casos de prueba pytest documentados |
 | `docs/CIERRE_PROYECTO.md` | Alcance final y checklist de cierre |
 | `docs/VIADATA_DOCUMENTACION_INTEGRAL.md` | **Documento maestro** para exportar a la tesis |
 | `docs/MANUAL_INSTALACION_EJECUCION.md` | Instalación |
 | `docs/MANUAL_CARGA_DATOS_BD.md` | Carga PostGIS |
+| `evaluaciones/LEEME_PRUEBAS_SISTEMA.txt` | Panel admin — pruebas y reporte PDF |
 | `evaluaciones/EVALUACION_MODULO_PREDICCIONES.md` | Evaluación modelos Predicciones (§1–§5) |
 
 ## Pruebas backend
+
+### Ejecución en consola
 
 ```powershell
 cd backend
@@ -121,19 +126,67 @@ python -m pytest -q
 
 Esperado: suite en verde (SQLite en tests; PostGIS con `check_postgis` en BD real).
 
-### Reporte Allure (visual)
+Con salida estructurada para el panel admin (JSON Allure):
 
-Requiere `allure-pytest` (en `requirements.txt`), **Node.js** (`npx`) y **Java 8+** (Allure CLI).
+```powershell
+python -m pytest --alluredir=allure-results --clean-alluredir -q
+```
+
+Los archivos quedan en `backend/allure-results/` (ignorados en Git). **No requiere Node.js ni Java.**
+
+### Panel administrador — `/admin/pruebas`
+
+Solo rol **administrador**. Flujo con **dos botones**:
+
+| Botón | Acción |
+|-------|--------|
+| **Ejecutar suite** | Lanza `pytest` con `--alluredir`, guarda JSON en `allure-results/` y muestra resultados en la UI |
+| **Generar reporte** | Igual que tablero/mapa/predicciones: vista previa → **Imprimir / Guardar PDF** |
+
+**Qué muestra la UI tras ejecutar:** KPIs (total, pasaron, fallaron…), resumen por módulo, fallos y detalle de cada caso (con filtro por estado).
+
+**Variables de entorno** (archivo `.env` en la raíz del repo; reinicie el backend tras cambiarlas):
+
+| Variable | Efecto |
+|----------|--------|
+| `DJANGO_DEBUG=1` | Modo desarrollo; por defecto habilita «Ejecutar suite» |
+| `ALLOW_ADMIN_TEST_RUNNER=1` | Fuerza habilitar el botón (útil si quiere control explícito) |
+| `ALLOW_ADMIN_TEST_RUNNER=0` | Deshabilita ejecutar desde la UI aunque `DEBUG=1` |
+
+**Campos del reporte imprimible:**
+
+| Campo | Significado |
+|-------|-------------|
+| **Estado** | `done` = pytest terminó con código 0; `error` = fallos, timeout o error del runner |
+| **Código salida pytest** | `0` = todas las pruebas pasaron; `1` = hubo fallos; `-1` = timeout o no se pudo ejecutar |
+
+**API (administrador, JWT):**
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/api/admin/pruebas/` | Estado de la última ejecución + resumen parseado |
+| POST | `/api/admin/pruebas/ejecutar/` | Inicia la suite en segundo plano |
+| POST | `/api/admin/pruebas/reporte/` | Payload para `/reporte/vista` (imprimible) |
+
+Código: `backend/accounts/pruebas_runner.py`, `pruebas_reporte.py`, `admin_pruebas_views.py` · UI: `frontend/src/pages/AdminPruebas.jsx`.
+
+Guía extendida: **`evaluaciones/LEEME_PRUEBAS_SISTEMA.txt`**.
+
+### Allure — etiquetado y reporte opcional en consola
+
+La suite usa **`allure-pytest`** para etiquetar cada caso (Epic, Feature, categoría, indicador P05/P07, etc.). Configuración en `backend/allure_reporting.py` y `backend/conftest.py`.
+
+El **panel admin no necesita** el reporte HTML oficial de Allure: los JSON alimentan la UI y el reporte imprimible.
+
+**Opcional** (solo consola, requiere Node.js + Java 8+ y `allure-pytest` en `requirements.txt`):
 
 ```powershell
 cd backend
-.\run_pytest_allure.ps1 -Serve      # ejecuta tests y abre reporte en el navegador
+.\run_pytest_allure.ps1 -Serve      # ejecuta tests y abre Allure en el navegador
 .\run_pytest_allure.ps1 -Static      # genera backend/allure-report/index.html
 ```
 
-Salida cruda: `backend/allure-results/` (ignorada en Git).
-
-El reporte agrupa automáticamente por **Epic** (módulo), **Feature** (archivo de prueba), **Story** (caso), **Severidad** y etiquetas: `categoria`, `tipo_prueba`, `capa`, `indicador` (P05, P07, etc.). Configuración en `backend/allure_reporting.py`.
+No es necesario para el uso habitual del sistema vía `/admin/pruebas`.
 
 ## Frontend — dependencias npm (referencia)
 

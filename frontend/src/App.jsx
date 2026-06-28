@@ -14,6 +14,7 @@ import { RequireAdministrador } from './components/RequireAdministrador.jsx'
 import { Agente } from './pages/Agente.jsx'
 import { ReportePreview } from './pages/ReportePreview.jsx'
 import { AdminUsuarios } from './pages/AdminUsuarios.jsx'
+import { AdminPruebas } from './pages/AdminPruebas.jsx'
 
 const Predicciones = lazy(() =>
   import('./pages/Predicciones.jsx').then((m) => ({ default: m.Predicciones })),
@@ -55,6 +56,16 @@ export default function App() {
                 <RequireAdministrador>
                   <RouteErrorBoundary>
                     <AdminUsuarios />
+                  </RouteErrorBoundary>
+                </RequireAdministrador>
+              }
+            />
+            <Route
+              path="admin/pruebas"
+              element={
+                <RequireAdministrador>
+                  <RouteErrorBoundary>
+                    <AdminPruebas />
                   </RouteErrorBoundary>
                 </RequireAdministrador>
               }

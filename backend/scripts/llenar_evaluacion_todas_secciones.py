@@ -20,6 +20,8 @@ SCRIPTS = [
     "llenar_evaluacion_tres_sigma.py",
 ]
 
+POST_SCRIPT = "generar_matriz_escenarios_md.py"
+
 
 def main():
     py = sys.executable
@@ -29,7 +31,11 @@ def main():
         rc = subprocess.call([py, str(path)], cwd=str(BACKEND))
         if rc != 0:
             raise SystemExit(rc)
-    print("\nTodos los CSV de evaluación fueron regenerados.")
+    print(f"\n=== {POST_SCRIPT} ===")
+    rc = subprocess.call([py, str(BACKEND / "scripts" / POST_SCRIPT)], cwd=str(BACKEND))
+    if rc != 0:
+        raise SystemExit(rc)
+    print("\nTodos los CSV de evaluación y la matriz MD fueron regenerados.")
 
 
 if __name__ == "__main__":

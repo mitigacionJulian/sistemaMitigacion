@@ -1492,6 +1492,177 @@ a {
   margin-top: 1rem;
 }
 
+.admin-pruebas-page .admin-pruebas-header {
+  align-items: flex-start;
+}
+
+.admin-pruebas-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.admin-pruebas-panel {
+  margin-bottom: 1rem;
+}
+
+.admin-pruebas-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.admin-pruebas-panel-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.admin-pruebas-estado {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.admin-pruebas-estado--idle {
+  background: rgba(148, 163, 184, 0.2);
+  color: #475569;
+}
+
+.admin-pruebas-estado--running {
+  background: rgba(59, 130, 246, 0.15);
+  color: #1d4ed8;
+}
+
+.admin-pruebas-estado--ok {
+  background: rgba(34, 197, 94, 0.15);
+  color: #15803d;
+}
+
+.admin-pruebas-estado--error {
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
+}
+
+.admin-pruebas-meta {
+  margin-bottom: 1rem;
+}
+
+.admin-pruebas-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.admin-pruebas-hint {
+  margin-top: 0.75rem;
+}
+
+.admin-pruebas-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.admin-pruebas-kpi {
+  background: var(--panel-bg, #fff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  padding: 0.75rem 0.9rem;
+}
+
+.admin-pruebas-kpi-label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--muted, #64748b);
+  margin-bottom: 0.25rem;
+}
+
+.admin-pruebas-kpi-value {
+  font-size: 1.35rem;
+  line-height: 1.1;
+}
+
+.admin-pruebas-kpi--ok .admin-pruebas-kpi-value {
+  color: #15803d;
+}
+
+.admin-pruebas-kpi--bad .admin-pruebas-kpi-value {
+  color: #b91c1c;
+}
+
+.admin-pruebas-kpi--warn .admin-pruebas-kpi-value {
+  color: #b45309;
+}
+
+.admin-pruebas-msg-cell {
+  max-width: 28rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.82rem;
+}
+
+.admin-pruebas-table td,
+.admin-pruebas-table th {
+  font-size: 0.86rem;
+}
+
+.admin-pruebas-filtro-estado select {
+  min-width: 10rem;
+}
+
+.admin-pruebas-caso {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.admin-pruebas-caso--ok {
+  background: rgba(34, 197, 94, 0.15);
+  color: #15803d;
+}
+
+.admin-pruebas-caso--bad {
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
+}
+
+.admin-pruebas-caso--skip {
+  background: rgba(148, 163, 184, 0.2);
+  color: #475569;
+}
+
+.reporte-pruebas-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.reporte-pruebas-kpi {
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  padding: 0.65rem 0.75rem;
+}
+
+.reporte-pruebas-kpi strong {
+  display: block;
+  font-size: 1.2rem;
+  margin-top: 0.15rem;
+}
+
+.reporte-pruebas-ejecucion {
+  margin-bottom: 0.5rem;
+}
+
 .auth-links {
   margin-top: 1rem;
   line-height: 1.5;
@@ -1634,26 +1805,40 @@ a {
   max-width: 52rem;
 }
 
+.predicciones-guia {
+  margin-top: 0.65rem;
+  margin-bottom: 0.35rem;
+}
+
+.predicciones-guia-body p,
 .page-intro-guide-body p {
   margin: 0.5rem 0 0;
 }
 
+.predicciones-guia-body p:first-child,
 .page-intro-guide-body p:first-child {
-  margin-top: 0.5rem;
+  margin-top: 0.25rem;
 }
 
+.predicciones-guia-body ul,
 .page-intro-guide-body ul {
   margin: 0.5rem 0;
   padding-left: 1.25rem;
 }
 
+.predicciones-guia-body li,
 .page-intro-guide-body li {
   margin-bottom: 0.4rem;
   line-height: 1.45;
 }
 
+.predicciones-guia-body li:last-child,
 .page-intro-guide-body li:last-child {
   margin-bottom: 0;
+}
+
+.predicciones-mapa-secciones {
+  margin-top: 0.35rem;
 }
 
 .page-intro-guide-body ul ul {
@@ -3121,6 +3306,20 @@ a {
   margin-top: 0.85rem;
 }
 
+.serie-datos-tabla-detalle {
+  margin-top: 0.85rem;
+}
+
+.serie-datos-tabla-detalle summary {
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: 0.35rem;
+}
+
+.serie-datos-tabla-detalle .serie-datos-tabla-wrap {
+  margin-top: 0;
+}
+
 .serie-datos-tabla-caption {
   margin: 0 0 0.45rem;
 }
@@ -3912,6 +4111,14 @@ a {
   }
 
   .reporte-tabla-detalle > *:not(summary) {
+    display: block !important;
+  }
+
+  .serie-datos-tabla-detalle summary {
+    display: none;
+  }
+
+  .serie-datos-tabla-detalle > *:not(summary) {
     display: block !important;
   }
 }

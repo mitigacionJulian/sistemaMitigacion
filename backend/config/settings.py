@@ -191,3 +191,10 @@ SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_HTTPONLY = False
+
+# --- Runner de pruebas Allure (panel administrador, solo desarrollo) ---
+ALLOW_ADMIN_TEST_RUNNER = os.environ.get(
+    "ALLOW_ADMIN_TEST_RUNNER", "1" if DEBUG else "0"
+) == "1"
+ALLURE_RESULTS_DIR = BASE_DIR / "allure-results"
+PRUEBAS_RUNNER_STATE_FILE = BASE_DIR / ".pruebas_runner_state.json"

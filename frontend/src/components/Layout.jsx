@@ -72,9 +72,14 @@ export function Layout() {
             </NavLink>
           )}
           {isAdministrador && (
-            <NavLink to="/admin/usuarios" className={navClass} onClick={closeNav}>
-              Usuarios
-            </NavLink>
+            <>
+              <NavLink to="/admin/usuarios" className={navClass} onClick={closeNav}>
+                Usuarios
+              </NavLink>
+              <NavLink to="/admin/pruebas" className={navClass} onClick={closeNav}>
+                Pruebas
+              </NavLink>
+            </>
           )}
           {!user && (
             <>

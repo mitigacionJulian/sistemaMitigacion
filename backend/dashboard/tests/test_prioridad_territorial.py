@@ -25,6 +25,24 @@ def test_delta_promedios_territorio():
     assert d is not None and d > 0
 
 
+def test_delta_15_meses_solo_ultimos_12():
+    """Con 15 meses, N=6: ignora los 3 primeros; compara últimos 6 vs 6 previos."""
+    from dashboard.prioridad_territorial import _delta_promedios_territorio
+
+    vals = [5] * 3 + [10] * 6 + [20] * 6
+    assert _delta_promedios_territorio(vals) == 10.0
+
+
+def test_delta_9_meses_ventana_mitad():
+    from dashboard.prioridad_territorial import _delta_promedios_territorio
+
+    # n=9 → w=4; últimos 4 vs 4 previos; atenuación × 9/12
+    vals = [1, 10, 10, 10, 10, 20, 20, 20, 20]
+    d = _delta_promedios_territorio(vals)
+    assert d is not None
+    assert abs(d - 10.0 * 9 / 12) < 1e-9
+
+
 def test_indice_compuesto_orden():
     totales = {
         1: {"incidentes": 100, "victimas": 120, "fatales": 10, "nombre": "A"},

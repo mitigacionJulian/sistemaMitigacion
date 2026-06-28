@@ -2,6 +2,7 @@ import { ReporteLayout } from './ReporteLayout.jsx'
 import { ReporteAsistente } from './ReporteAsistente.jsx'
 import { ReporteMapa } from './ReporteMapa.jsx'
 import { ReportePredicciones } from './ReportePredicciones.jsx'
+import { ReportePruebas } from './ReportePruebas.jsx'
 import { ReporteTablero } from './ReporteTablero.jsx'
 
 export function ReportePreviewContent({ reporte }) {
@@ -21,6 +22,8 @@ export function ReportePreviewContent({ reporte }) {
         <ReportePredicciones cuerpo={cuerpo} />
       ) : cuerpo?.tipo === 'asistente' ? (
         <ReporteAsistente cuerpo={cuerpo} />
+      ) : cuerpo?.tipo === 'pruebas' ? (
+        <ReportePruebas cuerpo={cuerpo} />
       ) : cuerpo?.tipo === 'placeholder' ? (
         <section className="reporte-placeholder panel">
           <p>{cuerpo.mensaje}</p>
