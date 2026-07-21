@@ -1,0 +1,82 @@
+GUÍA DE EVALUACIÓN — SECCIÓN 3: CARGA PROYECTADA TERRITORIAL (P08 · P09/P10)
+================================================================================
+
+Documentación de librerías: docs/LIBRERIAS_Y_SECCIONES.md §3.5 sección 4.
+Backend: dashboard/carga_esperada_territorial.py (reutiliza proyección mensual).
+
+Archivo de registro: predicciones_seccion3_carga_territorial.csv
+Interfaz: Predicciones → sección «3. Comparación territorial de carga proyectada»
+Estado: CERRADA (2026-06-18) — ver SECCION3_CIERRE_CARGA_TERRITORIAL.txt
+
+──────────────────────────────────────────────────────────────────────────────
+1. QUÉ SE EVALÚA (distinto de secciones 1 y 2)
+──────────────────────────────────────────────────────────────────────────────
+
+La sección 3 proyecta **incidentes futuros por territorio** (comuna o barrio),
+suma el horizonte elegido y ordena por **carga esperada**. La categoría
+alto/medio/bajo (P08) es **relativa** (terciles entre territorios listados).
+
+  · Sección 1: una sola serie agregada (ciudad o filtro) → elige modelo con hold-out.
+  · Sección 2: índice compuesto del **pasado** (P05) → sin selector de modelo.
+  · Sección 3: **N proyecciones** (una por territorio elegible) → selector de modelo;
+    la decisión principal es **coherencia del ranking** (Spearman, # vol.).
+
+Evaluación en dos capas (panel UI):
+  · **Confianza del ranking** — Spearman carga↔volumen, posición #1 vs # vol.
+  · **Confianza de cifras** — MAPE hold-out mediano por territorio (suele ser bajo)
+
+──────────────────────────────────────────────────────────────────────────────
+2. FLUJO DE TRABAJO
+──────────────────────────────────────────────────────────────────────────────
+
+  Paso 1 — Filtros compartidos: fechas, territorio, excluir COVID.
+  Paso 2 — Sección 3: nivel comuna/barrio, modelo, horizonte 3 meses.
+  Paso 3 — Leer gráfico, panel de confianza, tabla (# vol.).
+  Paso 4 — CSV: escenario A × 5 modelos; B–G × estacional.
+
+  Script: python scripts/llenar_evaluacion_seccion3.py
+
+──────────────────────────────────────────────────────────────────────────────
+3. ESCENARIOS (A–G)
+──────────────────────────────────────────────────────────────────────────────
+
+  Ver SECCION3_CIERRE_CARGA_TERRITORIAL.txt §4 para tabla completa.
+
+──────────────────────────────────────────────────────────────────────────────
+4. COLUMNAS DEL CSV
+──────────────────────────────────────────────────────────────────────────────
+
+  ranking_coherente, spearman_carga_frecuencia, top1_rank_frecuencia
+  nivel_confianza_ranking / nivel_confianza_cifras (desde bondad_agregada API)
+  mediana_mape_holdout_pct, mape_ponderado_incidentes_pct, mediana_mape_nucleo_pct
+  pct_territorios_holdout_aceptable
+  cierre_util → si / parcial / no (heurística de cierre; ver script)
+
+  Regla cierre_util:
+    · si:      ranking_coherente=si y confianza ranking bueno
+    · parcial: barrios ciudad (B), ARIMA en A, o ranking moderado
+    · no:      ranking incoherente
+
+──────────────────────────────────────────────────────────────────────────────
+5. CIERRE DE SECCIÓN 3 (2026-06-18)
+──────────────────────────────────────────────────────────────────────────────
+
+  Estado: CERRADA — ver SECCION3_CIERRE_CARGA_TERRITORIAL.txt
+
+  Modelo adoptado:
+    · **Estacional**, horizonte 3 meses, excluir COVID, nivel **comuna** (referencia)
+
+  Decisión:
+    · **Ranking territorial confiable** (Spearman ~0,95; La Candelaria #1 alineado con P05).
+    · **Cifras absolutas no confiables** para presupuesto (MAPE mediano ~33 %); uso comparativo.
+    · ARIMA territorial: **no** como default (Sin Inf #1, parcial).
+    · Barrios ciudad: **parcial** (50/270 proyectables; aviso UI).
+
+  cierre_util: 9 si, 2 parcial (A/arima, B/barrios)
+
+  Siguiente paso: evaluación sección 4 (proporción víctimas fatales / P07).
+
+  Archivos:
+    · SECCION3_CIERRE_CARGA_TERRITORIAL.txt
+    · predicciones_seccion3_carga_territorial.csv
+    · scripts/llenar_evaluacion_seccion3.py

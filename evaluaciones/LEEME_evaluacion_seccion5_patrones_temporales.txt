@@ -1,0 +1,116 @@
+GUÍA DE EVALUACIÓN — SECCIÓN 5: PATRONES DÍA×HORA Y DÍA SEMANA (P12 · P13)
+===========================================================================
+
+Documentación de librerías: docs/LIBRERIAS_Y_SECCIONES.md §3.5 secciones 5–6.
+Backend: dashboard/patrones_temporales_proyectados.py. Frontend: PatronesDiaHoraPanel.jsx (Recharts).
+
+Archivo: predicciones_seccion5_patrones_temporales.csv (11 filas)
+Pantalla: Predicciones → «5. Patrones día × hora y día de semana (P12 · P13)»
+Estado: CERRADA v1.1 (2026-06-18)
+Cierre: SECCION5_CIERRE_PATRONES_TEMPORALES.txt
+
+──────────────────────────────────────────────────────────────────────────────
+1. QUÉ SE EVALUÓ
+──────────────────────────────────────────────────────────────────────────────
+
+Si el reparto del total proyectado en franjas día×hora (P12) y por día de semana
+(P13) es utilizable para **priorizar vigilancia operativa** (cuándo reforzar
+turnos o controles), sin pretender predecir un accidente individual.
+
+──────────────────────────────────────────────────────────────────────────────
+2. CÓMO SE CALCULA (RESUMEN)
+──────────────────────────────────────────────────────────────────────────────
+
+  Paso A — Total del horizonte
+    · Serie mensual de incidentes + modelo del bloque 1 (OLS, estacional, MA, ARIMA, SARIMA).
+    · Suma de los N meses proyectados = total_proyectado_horizonte.
+    · **Sí depende del modelo** (solo este paso).
+
+  Paso B — Reparto temporal
+    · Proporciones del periodo filtrado (observados por celda o por día).
+    · Suavizado Laplace: +0,5 por celda P12; +0,25 por día P13.
+    · **No depende del modelo**; cambia si cambian fechas/filtros.
+
+  P13 — Reparto uniforme (referencia, no proyección)
+    · 14,29 % por día si la semana fuera perfectamente uniforme.
+    · ratio = participación (%) ÷ 14,29 → semáforo alto/medio/bajo en barras observadas.
+
+──────────────────────────────────────────────────────────────────────────────
+3. DISEÑO UI ADOPTADO (v1.1)
+──────────────────────────────────────────────────────────────────────────────
+
+  · **No hay selector de modelo en bloque 5.**
+  · Hereda modelo, horizonte y parámetros ARIMA/SARIMA del **bloque 1**.
+  · Al cambiar modelo u horizonte en sección 1, se recargan P12 y P13 automáticamente.
+  · Backend siempre proyecta **incidentes** (aunque el gráfico del bloque 1 muestre
+    víctimas o fatales).
+
+  Motivo: el CSV demuestra que comparar modelos en bloque 5 no mejora el patrón
+  relativo; solo altera el volumen. La elección de modelo pertenece a la sección 1.
+
+──────────────────────────────────────────────────────────────────────────────
+4. RESULTADO RESUMIDO (CSV)
+──────────────────────────────────────────────────────────────────────────────
+
+  Ciudad (A): los 5 modelos mensuales → patron_util = sí.
+  Líder estable: **martes 07:00** (P12) y **martes** (P13).
+  Total proyectado ~4 573–5 531 según modelo; patrón relativo casi idéntico
+  (Spearman ~0,999).
+
+  Otros escenarios (estacional): B, C, D, F, G = sí; E (sin COVID) = parcial.
+
+  patron_util global: 10 sí · 1 parcial · 0 no
+
+──────────────────────────────────────────────────────────────────────────────
+5. COLUMNAS CLAVE DEL CSV
+──────────────────────────────────────────────────────────────────────────────
+
+  total_incidentes_periodo     → incidentes en el rango filtrado (base del reparto)
+  total_proyectado_horizonte   → suma meses proyectados (depende del modelo en fila)
+  p12_top_celda                → celda con más incidentes proyectados (día + hora)
+  p12_spearman_obs_proy        → correlación ranking observado vs proyectado (~1 = estable)
+  p12_top_igual_obs            → si el líder proyectado coincide con el histórico
+  p12_coherente                → suma celdas = total (validación contable)
+  p13_top_dia                  → día con más incidentes proyectados
+  p13_top_participacion_pct    → % del total horizonte en ese día
+  p13_top_nivel                → semáforo vs reparto uniforme (alto/medio/bajo)
+  patron_util                  → si / parcial / no (criterio operativo del evaluador)
+  sin_modelo_mensual           → si el paso A falló (pocos meses, etc.)
+
+──────────────────────────────────────────────────────────────────────────────
+6. FLUJO DE EVALUACIÓN
+──────────────────────────────────────────────────────────────────────────────
+
+  1. Filtros compartidos + bloque 1 con modelo/horizonte deseados.
+  2. Revisar bloque 5: heatmap P12 (periodo / proyección / diferencia).
+  3. Revisar P13: barras observado vs proyección y chips por día.
+  4. Registrar fila en CSV (script o manual) por escenario × modelo si aplica.
+  5. Para producción: un solo modelo en bloque 1; bloque 5 sigue automático.
+
+  Script (desde backend/):
+    .venv\Scripts\python scripts/llenar_evaluacion_seccion5.py
+
+──────────────────────────────────────────────────────────────────────────────
+7. CRITERIO patron_util
+──────────────────────────────────────────────────────────────────────────────
+
+  sí       — Hay total proyectado, reparto coherente, patrón legible para operación.
+  parcial  — Datos escasos, COVID no excluido, o líder horario ≠ histórico con
+             filtros muy estrechos (ej. escenario C).
+  no       — sin_modelo_mensual, sin datos, o patrón inutilizable.
+
+──────────────────────────────────────────────────────────────────────────────
+8. RELACIÓN CON OTRAS SECCIONES
+──────────────────────────────────────────────────────────────────────────────
+
+  · Sección 1: define total y modelo (bloque 5 depende de ella).
+  · Sección 3: reparto por comuna/barrio (modelo propio estacional).
+  · Sección 4: % fatales (independiente).
+  · P13 no es sección 6 en UI; va incluido en el bloque 5 junto a P12.
+
+──────────────────────────────────────────────────────────────────────────────
+9. PENDIENTE FUERA DE ESTA SECCIÓN
+──────────────────────────────────────────────────────────────────────────────
+
+  · Trasladar metodología, resultados y limitaciones al informe de grado.
+  · Opcional futuro: aviso explícito en UI si bloque 1 muestra variable ≠ incidentes.

@@ -1,0 +1,153 @@
+GUÍA DE EVALUACIÓN — SECCIÓN 2: PRIORIDAD TERRITORIAL (P05)
+============================================================
+
+Documentación de librerías: docs/LIBRERIAS_Y_SECCIONES.md §3.5 sección 2.
+Backend: dashboard/prioridad_territorial.py (SQL + delta de promedios por territorio).
+
+Archivo de registro: predicciones_seccion2_prioridad_territorial.csv
+Interfaz: Predicciones → sección «2. Prioridad territorial (índice compuesto)»
+Estado: CERRADA (2026-06-18) — ver SECCION2_CIERRE_PRIORIDAD_TERRITORIAL.txt
+
+──────────────────────────────────────────────────────────────────────────────
+1. QUÉ SE EVALÚA (distinto de la sección 1)
+──────────────────────────────────────────────────────────────────────────────
+
+La sección 2 NO compara modelos de proyección (OLS, SARIMA, etc.).
+Evalúa si el **índice compuesto P05** es útil y coherente para priorizar
+territorios en el periodo filtrado.
+
+Componentes fijos (pesos en meta de la API):
+  · 30 % frecuencia de incidentes
+  · 15 % densidad incidentes/km²
+  · 20 % tendencia (delta de promedios mensuales; COVID excluible del tramo)
+  · 20 % % víctimas fatales
+  · 15 % participación en el total del periodo
+
+  La tendencia interna usa **delta de promedios** (no el modelo del gráfico de arriba).
+  Mínimos: 5 incidentes (comuna), 25 (barrio).
+
+  Reglas de ventana del delta (por territorio, serie mensual tras excluir COVID si aplica):
+    · ≥ 12 meses en la serie → N = 6 fijo: últimos 6 vs los 6 previos (12 meses en total;
+      meses anteriores a ese bloque no cuentan). Ej.: con 15 meses solo entran los meses 4–15.
+    · 6–11 meses → N = mitad de la serie (mín. 3); delta × (n/12).
+    · < 6 meses → sin delta (tendencia = 0 en la dimensión cruda).
+
+  Mejoras implementadas (2026-06-18):
+    · Delta de promedios en lugar de OLS
+    · Vista «Solo por frecuencia»; columna # vol. en vista compuesta
+    · Aviso si el #1 no lidera por volumen
+    · Guía «Scores y índice» (Freq, Dens, Tend, Fatal, Part)
+    · Recarga automática al cambiar nivel territorial
+    · Análisis de sensibilidad de pesos en meta
+
+──────────────────────────────────────────────────────────────────────────────
+2. FLUJO DE TRABAJO
+──────────────────────────────────────────────────────────────────────────────
+
+  Paso 1 — Filtros compartidos (panel superior)
+    · Mismos que sección 1: fechas, comuna, barrio, clase, territorio, variable
+    · La variable del filtro superior NO cambia el índice (siempre incidentes
+      en el ranking); use incidentes para evaluación estándar.
+
+  Paso 2 — Sección 2
+    · Nivel territorial: comuna o barrio (barrio deshabilitado si hay barrio fijo)
+    · Pulse «Actualizar»
+
+  Paso 3 — Leer la tabla y las guías
+    · «Cómo interpretar cada columna de la tabla»
+    · «Scores y índice — cómo leer Freq, Dens, Tend, Fatal y Part»
+    · «¿Por qué estos pesos y el delta de promedios?»
+    · Fórmula y limitaciones bajo los controles
+
+  Paso 4 — Una fila por escenario en el CSV (no hay filas por «modelo»)
+
+  Script de apoyo (desde backend/):
+    python scripts/llenar_evaluacion_seccion2.py
+
+──────────────────────────────────────────────────────────────────────────────
+3. ESCENARIOS DEFINIDOS
+──────────────────────────────────────────────────────────────────────────────
+
+  ┌────┬────────────────────────────────────┬───────────────────────────────┐
+  │ ID │ Configuración                      │ Para qué sirve                │
+  ├────┼────────────────────────────────────┼───────────────────────────────┤
+  │ A  │ Ciudad, comunas, 2018–2021, COVID  │ Decisión principal del índice │
+  │ B  │ Ciudad, barrios, mismo rango       │ Granularidad barrial          │
+  │ C  │ 12 meses, comunas                  │ Sensibilidad a rango corto    │
+  │ D  │ Castilla (id 27), barrios          │ Prioridad intra-comuna        │
+  │ E  │ Atropello (id 2), comunas          │ Filtro por clase              │
+  │ F  │ Ciudad, sin excluir COVID tendencia│ Efecto del shock en tendencia │
+  │ G  │ Ciudad, modo espacial PostGIS      │ vs registro Mede (A)          │
+  └────┴────────────────────────────────────┴───────────────────────────────┘
+
+──────────────────────────────────────────────────────────────────────────────
+4. COLUMNAS DEL CSV
+──────────────────────────────────────────────────────────────────────────────
+
+  total_territorios_elegibles → meta (≥ 5 comuna / ≥ 25 barrio)
+  total_incidentes_periodo    → meta
+  top1_*                      → fila #1 del ranking
+  top1_rank_frecuencia        → posición del #1 si ordenara solo por incidentes
+  top3_nombres                → tres primeros separados por «;»
+  overlap_top5_indice_frecuencia → cuántos del top 5 índice están en top 5 frecuencia
+  spearman_indice_frecuencia  → correlación de rangos índice vs frecuencia (script)
+  ranking_util                → si / parcial / no (heurística del script; revisar en UI)
+
+  Regla ranking_util (automática, revisar visualmente):
+    · si:      Spearman ≥ 0,75; #1 en top 3 por frecuencia; overlap top5 ≥ 3
+    · parcial: Spearman ≥ 0,5 o overlap ≥ 2 o #1 en top 5 por frecuencia
+    · no:      resto o sin datos
+
+──────────────────────────────────────────────────────────────────────────────
+5. CRITERIOS DE SUSTENTACIÓN
+──────────────────────────────────────────────────────────────────────────────
+
+  El índice es adecuado para priorización exploratoria si:
+    · Los territorios con más incidentes suelen aparecer arriba (coherencia con
+      frecuencia), pero el índice puede reordenar por tendencia o gravedad.
+    · El jurado entiende que es **relativo al periodo y filtros**, no riesgo individual.
+    · Se documentan pesos (30/15/20/20/15) y delta de promedios en tendencia.
+
+  No exigir correlación perfecta con solo frecuencia: el índice incorpora
+  tendencia y % fatales a propósito.
+
+──────────────────────────────────────────────────────────────────────────────
+6. ORDEN SUGERIDO
+──────────────────────────────────────────────────────────────────────────────
+
+  A → B → C → D, E → F → G
+
+  Cierre documentado en: SECCION2_CIERRE_PRIORIDAD_TERRITORIAL.txt (estado CERRADA).
+
+──────────────────────────────────────────────────────────────────────────────
+8. CIERRE DE SECCIÓN 2 (2026-06-18)
+──────────────────────────────────────────────────────────────────────────────
+
+  Estado: CERRADA — ver SECCION2_CIERRE_PRIORIDAD_TERRITORIAL.txt
+
+  Índice adoptado para priorización exploratoria:
+    · Principal: nivel **comuna**, escenario A (2018–2021, excluir COVID en tendencia)
+    · Líder de referencia: **La Candelaria** (índice 62,6; #1 por volumen e índice)
+    · Barrio: usar con vista «solo frecuencia» y aviso UI (escenario B = parcial)
+
+  Tabla resumen — ranking_util por escenario:
+
+  ID   Top 1                 ranking_util   Nota breve
+  ───  ────────────────────  ────────────   ─────────────────────────────
+  A    La Candelaria         si             Referencia principal
+  B    Sin Inf (Robledo)     parcial        #1 no lidera por volumen (#17)
+  C    La Candelaria         si             Rango 12 meses estable
+  D    Caribe (Castilla)     si             Intra-comuna coherente
+  E    La Candelaria         si             Filtro Atropello
+  F    La Candelaria         si             COVID en tendencia: mismo orden que A
+  G    La Candelaria         si             Modo espacial; totales distintos
+
+  Siguiente paso del proyecto: evaluación sección 4 (proporción víctimas fatales).
+
+──────────────────────────────────────────────────────────────────────────────
+9. RELACIÓN CON OTRAS SECCIONES
+──────────────────────────────────────────────────────────────────────────────
+
+  · Sección 3 (carga esperada) usa proyección mensual por territorio — distinto.
+  · Tablero «top comunas» cuenta víctimas; P05 cuenta incidentes — no deben
+    coincidir exactamente; compare narrativamente, no cifra a cifra.

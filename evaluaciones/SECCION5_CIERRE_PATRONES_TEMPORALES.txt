@@ -1,0 +1,168 @@
+CIERRE — SECCIÓN 5: PATRONES DÍA×HORA Y DÍA SEMANA (P12 · P13)
+================================================================
+Estado: CERRADA v1.1 (2026-06-18)
+Registro: predicciones_seccion5_patrones_temporales.csv (11 filas)
+Guía: LEEME_evaluacion_seccion5_patrones_temporales.txt
+Backend: dashboard/patrones_temporales_proyectados.py
+UI: Predicciones.jsx → bloque 5 + PatronesDiaHoraPanel.jsx
+
+──────────────────────────────────────────────────────────────────────────────
+1. OBJETIVO
+──────────────────────────────────────────────────────────────────────────────
+
+Comprobar si el tablero puede indicar **cuándo** del horizonte proyectado se
+concentrarían los incidentes:
+
+  · **P12** — matriz día × hora (168 celdas: 7 días × 24 horas).
+  · **P13** — barras por día de la semana (resumen de P12 sin desglose horario).
+
+El método no inventa un patrón nuevo por celda: proyecta un **total mensual** y
+lo reparte según las **proporciones históricas** del periodo filtrado, con
+suavizado Laplace mínimo.
+
+──────────────────────────────────────────────────────────────────────────────
+2. METODOLOGÍA (DOS PASOS)
+──────────────────────────────────────────────────────────────────────────────
+
+  PASO 1 — Total del horizonte (DEPENDE del modelo mensual)
+    · Usa _build_single sobre la serie mensual de **incidentes** (mismos filtros).
+    · Modelo y horizonte: los del **bloque 1** (proyección mensual) en la UI.
+    · Suma los N meses proyectados → total a repartir (ej. ~4 600–5 500 en ciudad A).
+
+  PASO 2 — Reparto temporal (NO depende del modelo; depende del periodo filtrado)
+    · P12: cuenta incidentes observados en cada celda (día, hora) del periodo.
+      Peso = observados + 0,5 (Laplace por celda).
+      Reparte el total del paso 1 en proporción a esos pesos (enteros coherentes).
+    · P13: misma lógica agrupando por día (peso = observados + 0,25).
+    · Colores P12 (proyección): terciles entre celdas con datos.
+    · Colores P13 (periodo observado): semáforo vs. **reparto uniforme** (14,29 %/día).
+
+  Reparto uniforme (solo referencia en P13, NO es el método de proyección):
+    · Teórico: 100 % ÷ 7 ≈ 14,29 % por día si todos los días fueran iguales.
+    · ratio = participación_día (%) ÷ 14,29.
+    · ratio ≥ 1,45 → alto; ≥ 1,12 → medio; resto → bajo.
+
+──────────────────────────────────────────────────────────────────────────────
+3. CONFIGURACIÓN ADOPTADA (PRODUCCIÓN)
+──────────────────────────────────────────────────────────────────────────────
+
+  Referencia evaluación (escenario A):
+    · Ciudad 2018–2021 · Excluir COVID · Horizonte 3 meses
+    · 75 088 incidentes en el periodo
+
+  Decisión UI v1.1:
+    → **Sin selector de modelo en bloque 5.**
+    → Hereda modelo, horizonte, ventana MA y órdenes ARIMA/SARIMA del **bloque 1**.
+    → Texto en pantalla: «Modelo y horizonte: los de la sección 1. Proyección mensual».
+    → Backend de patrones **siempre** usa variable incidentes (aunque bloque 1 muestre
+      víctimas o fatales en el gráfico).
+
+  Elección de modelo para el usuario:
+    · **No comparar modelos en bloque 5** para «ajustar el patrón» (el CSV demuestra
+      que el patrón relativo es estable entre modelos).
+    · Para cambiar el **volumen** a repartir → bloque 1 (sección 1 cerró SARIMA para
+      incidentes ciudad con mejor MAPE hold-out ~12,6 %).
+
+  Evaluación CSV (escenario A, cinco modelos — solo documentación, no UI):
+    · Los cinco dan patron_util = sí, misma franja líder (martes 07:00 / martes).
+    · Spearman observado vs proyectado por celda ~0,999.
+    · **No desempatan** el patrón; solo cambian total_proyectado_horizonte.
+    · Un «estacional por defecto» en UI anterior era convención con sección 3, no
+      resultado del CSV de patrones.
+
+  Uso recomendado:
+    · Identificar franjas críticas (ej. martes 07:00 en ciudad).
+    · Comparar heatmap «periodo» vs «proyección» y matriz de diferencia.
+    · Usar delta_participacion_pp para comparar solo patrón relativo.
+    · No usar cifras de celda como presupuesto exacto ni probabilidad individual.
+
+──────────────────────────────────────────────────────────────────────────────
+4. RESULTADOS CIUDAD (escenario A, 2026-06-18)
+──────────────────────────────────────────────────────────────────────────────
+
+  Modelo       Total proyectado   P12 líder      P13 líder   patron_util
+  ──────────   ────────────────   ────────────   ─────────   ───────────
+  estacional   5 531              Martes 07:00   Martes      sí
+  ols          5 377              Martes 07:00   Martes      sí
+  media_movil  5 189              Martes 07:00   Martes      sí
+  arima        4 756              Martes 07:00   Martes      sí
+  sarima       4 573              Martes 07:00   Martes      sí
+
+  · p12_top_igual_obs = sí en ciudad (líder proyectado = líder histórico).
+  · p13_top_nivel = bajo en A (martes ~15 % vs 14,29 % uniforme → ratio ~1,06).
+  · sin_modelo_mensual = no en todos los escenarios evaluados.
+
+──────────────────────────────────────────────────────────────────────────────
+5. OTROS ESCENARIOS (estacional en CSV)
+──────────────────────────────────────────────────────────────────────────────
+
+  ID   util      Comentario
+  ──   ───────   ─────────────────────────────────────────────────────────
+  B    sí        Castilla; líder martes 06:00; menos volumen pero estable
+  C    sí        Atropello; P12 miércoles 18:00 ≠ líder horario histórico*
+  D    sí        12 meses horizonte; mismo líder que ciudad (martes 07:00)
+  E    parcial   Sin excluir COVID; total proyectado más bajo
+  F    sí        PostGIS ≈ registro
+  G    sí        18 meses post-COVID; patrón martes se mantiene
+
+  * En C el día líder semanal (sábado) sí coincide; a nivel hora fina puede cambiar
+    el primer puesto por empates y suavizado — uso exploratorio con filtro de clase.
+
+  Resumen patron_util: 10 sí · 1 parcial · 0 no
+
+──────────────────────────────────────────────────────────────────────────────
+6. HALLAZGOS
+──────────────────────────────────────────────────────────────────────────────
+
+  · Reparto **contablemente coherente** (suma celdas = total proyectado; p12_coherente).
+  · Patrón relativo **estable** entre modelos mensuales en ciudad.
+  · Sección 5 va **de la mano con sección 1** (total + configuración), no con 3 ni 4.
+  · P13 incluido en el mismo bloque UI que P12; no hay sección 6 separada.
+  · Excluir COVID recomendable (E = parcial).
+  · Filtros estrechos (clase Atropello, comuna) → leer con cautela.
+
+──────────────────────────────────────────────────────────────────────────────
+7. LÍMITES (aceptados en el cierre)
+──────────────────────────────────────────────────────────────────────────────
+
+  · No modela serie propia por celda ni por día.
+  · Asume que el futuro repite las proporciones del periodo filtrado.
+  · Matriz «diferencia» = proyección horizonte − periodo completo (duraciones distintas).
+  · Variable incidentes fija en backend aunque el gráfico del bloque 1 muestre otra.
+
+──────────────────────────────────────────────────────────────────────────────
+8. RELACIÓN CON OTRAS SECCIONES
+──────────────────────────────────────────────────────────────────────────────
+
+  · Sección 1: **origen del total** y del modelo/horizonte (bloque 5 la reutiliza).
+  · Sección 2: prioridad territorial pasada (P05); independiente.
+  · Sección 3: reparto **territorial** del total (modelo propio: estacional).
+  · Sección 4: proporción fatales (P07); independiente; no mezclar con heatmaps.
+  · Sección 5: reparto **temporal** (día×hora y día semana) del total de incidentes.
+
+  Esquema:
+    Bloque 1 (modelo) → total incidentes horizonte → Bloque 5 (P12 + P13)
+    Periodo filtrado  → proporciones día/hora      → Bloque 5 (P12 + P13)
+
+──────────────────────────────────────────────────────────────────────────────
+9. CHECKLIST DE CIERRE
+──────────────────────────────────────────────────────────────────────────────
+
+  [x] Escenarios A–G en CSV (11 filas)
+  [x] Cinco modelos en A (evaluación; confirma que patrón no desempata)
+  [x] Bloque 5 enlazado a modelo/horizonte del bloque 1 (UI v1.1)
+  [x] Selector independiente eliminado del bloque 5
+  [x] Guía «¿Cómo leer los patrones proyectados?» en interfaz
+  [x] P12 (heatmap) + P13 (barras día semana) en PatronesDiaHoraPanel
+  [x] Script backend/scripts/llenar_evaluacion_seccion5.py
+  [x] Documentación LEEME + cierre actualizados (v1.1)
+  [ ] Trasladar al informe de grado
+
+──────────────────────────────────────────────────────────────────────────────
+10. NOTA SOBRE «SECCIÓN 6»
+──────────────────────────────────────────────────────────────────────────────
+
+  En la planificación inicial P13 (día semana) figuraba como sección 6. En el
+  tablero actual P12 y P13 comparten el bloque 5; esta evaluación cubre ambos.
+  Con el cierre v1.1 no quedan secciones de Predicciones pendientes de evaluación
+  (1–5 cerradas); solo falta redactar en el informe de grado.

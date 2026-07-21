@@ -1,0 +1,336 @@
+GUÍA DE EVALUACIÓN — SECCIÓN 1: PROYECCIÓN MENSUAL
+==================================================
+
+Documentación de librerías (sustentación): docs/LIBRERIAS_Y_SECCIONES.md §3.5 sección 1.
+Backend: dashboard/predicciones_mensuales.py, modelos_arima.py (statsmodels), estadistica_series.py (NumPy).
+Frontend: Recharts, react-zoom-pan-pinch (ChartWheelZoom.jsx).
+
+Archivo de registro: predicciones_seccion1_proyeccion_mensual.csv
+Interfaz: Predicciones → sección «1. Proyección mensual»
+
+──────────────────────────────────────────────────────────────────────────────
+1. FLUJO DE TRABAJO
+──────────────────────────────────────────────────────────────────────────────
+
+  Paso 1 — Filtros compartidos (panel superior)
+    · Desde / Hasta, comuna, barrio, clase, territorio, variable
+    · Excluir mar–ago 2020 (recomendado: sí)
+    · Pulsar «Actualizar»
+
+  Paso 2 — Sección 1 (controles propios)
+    · Modelo (OLS, estacional, Poisson, MA, ARIMA, SARIMA)
+    · Orden ARIMA / estacional (editable; por defecto 2,1,3 y 1,1,1,12)
+    · Horizonte de proyección (meses futuros en el gráfico)
+    · Meses de prueba (3 o 6; hold-out)
+
+  Paso 3 — Leer dos bloques de métricas (NO son lo mismo)
+    · Ajuste al historial: línea «R² ≈ … MAPE ≈ …» bajo el gráfico
+    · Prueba del modelo: panel con meses reservados, MAPE y precisión estimada
+
+  Paso 4 — Registrar en el CSV una fila por (escenario × modelo)
+
+  Scripts de apoyo (desde backend/):
+    · python scripts/llenar_evaluacion_seccion1.py — recalcula B–F en el CSV
+    · python scripts/validar_proyeccion_razonable_aghi.py — valida columna
+      proyeccion_razonable en escenarios A, G, H, I
+
+──────────────────────────────────────────────────────────────────────────────
+2. DÓNDE SACAR CADA COLUMNA DEL CSV
+──────────────────────────────────────────────────────────────────────────────
+
+  sin_modelo          → «no» si hay gráfico con ajuste; «si» si aparece aviso sin proyección
+  n_meses_ajuste      → meses usados en el ajuste (sin mar–ago 2020 si excluir COVID = sí)
+  r2, rmse, mape_pct  → métricas IN-SAMPLE (línea de ajuste bajo el gráfico)
+  aic, bic            → solo ARIMA / SARIMA
+  bondad_nivel        → caja «Interpretación del ajuste» (bueno / moderado / bajo)
+  r2_holdout          → panel hold-out → R²
+  rmse_holdout        → panel hold-out → RMSE
+  mape_holdout_pct    → panel hold-out → MAPE  ★ MÉTRICA CLAVE
+  bondad_holdout      → panel hold-out → nivel de bondad
+  holdout_activo      → «si» si el panel muestra tabla mes a mes; «no» si indica motivo
+  proyeccion_razonable→ su criterio visual: si / no / parcial
+    Regla aplicada en A,G,H,I (coherente con métricas):
+      · no: sin modelo, hold-out inactivo, o MAPE hold-out > 25 %
+      · si: MAPE hold-out ≤ 20 % (y ≤ 15 % si R² muy bajo no aplica), escenario no G
+      · parcial: MAPE hold-out 20–25 %; escenario G (serie 6 meses); R²≈1 en I;
+        OLS/ARIMA con R² < 0,15 pero MAPE hold-out 15–20 %
+
+──────────────────────────────────────────────────────────────────────────────
+3. IN-SAMPLE vs HOLD-OUT (concepto central)
+──────────────────────────────────────────────────────────────────────────────
+
+  IN-SAMPLE (ajuste histórico)
+    El modelo «ve» todos los meses del periodo y se mide qué tan bien los reproduce.
+    · R² alto aquí NO garantiza buena predicción futura.
+    · Puede haber sobreajuste: memoriza el pasado pero falla en meses nuevos.
+
+  HOLD-OUT / prueba con meses reservados (validación predictiva)
+    Se reservan los últimos N meses (3 o 6), se entrena SIN ellos y se predice esos meses.
+    · En la UI: panel «Prueba del modelo».
+    · Es la métrica principal para elegir modelo.
+
+  Regla: para DECIDIR modelo → priorice MAPE hold-out.
+         para DESCRIBIR ajuste → use R² / MAPE in-sample como complemento.
+
+──────────────────────────────────────────────────────────────────────────────
+4. ¿RANGO LARGO O CORTO DE FECHAS?
+──────────────────────────────────────────────────────────────────────────────
+
+  NO siempre el máximo. Use varios escenarios con propósitos distintos:
+
+  ┌────┬─────────────────────┬──────────────────────────────────────────────┐
+  │ ID │ Rango               │ Para qué sirve                               │
+  ├────┼─────────────────────┼──────────────────────────────────────────────┤
+  │ A  │ 2018–2021 (largo)   │ Decisión principal del modelo                │
+  │ G  │ 6 meses             │ Demostrar degradación con poca historia      │
+  │ H  │ 12 meses            │ Mínimo ARIMA; SARIMA aún no aplica           │
+  │ I  │ 18 meses post-COVID │ Comportamiento reciente tras confinamiento   │
+  │ B  │ 2018–2021 víctimas  │ Misma lógica, otra variable                │
+  │ C  │ 2018–2021 fatales   │ Idem                                         │
+  │ D  │ Comuna Castilla (id 27) │ Territorio reducido; todos los modelos rinden bien  │
+  │ E  │ Clase Atropello (id 2)  │ Poisson/estacional ~88 % precisión en prueba      │
+  │ F  │ Sin excluir COVID       │ SARIMA empeora; valida excluir mar–ago 2020       │
+  └────┴─────────────────────┴──────────────────────────────────────────────┘
+
+  Mínimos de meses (en el ajuste, tras excluir COVID si aplica):
+    · OLS ........................ 2 meses
+    · Estacional / Poisson ....... 3 meses (recomendado ≥ 12)
+    · Media móvil ................ = ventana (3, 6 o 12)
+    · ARIMA ...................... 12 meses (+ 3 hold-out → 15 totales)
+    · SARIMA ....................... 24 meses (dos ciclos anuales)
+
+──────────────────────────────────────────────────────────────────────────────
+5. CONFIABILIDAD 80 % — QUÉ COEFICIENTE CITAR
+──────────────────────────────────────────────────────────────────────────────
+
+  Pregunte al profesor cuál de estas dos interpretaciones usa:
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ A) «80 % de exactitud / confiabilidad predictiva»                       │
+  │    Métrica: MAPE hold-out                                               │
+  │    Umbral:  MAPE hold-out ≤ 20 %                                        │
+  │    Lectura: Precisión estimada ≈ 100 % − MAPE                           │
+  │             MAPE 15 % → precisión ≈ 85 %  ✓ cumple 80 %                  │
+  │             MAPE 22 % → precisión ≈ 78 %  ✗ no cumple                   │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ B) «El modelo explica el 80 % de la variación de la serie»              │
+  │    Métrica: R² (coeficiente de determinación)                           │
+  │    Umbral:  R² ≥ 0,80                                                   │
+  │    En accidentes mensuales con COVID, casi ningún modelo alcanza 0,80.  │
+  │    El mejor in-sample en escenario A es MA con R² ≈ 0,60.               │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  Recomendación para sustentación (interpretación A):
+    «El modelo se considera confiable para proyección exploratoria cuando el
+    MAPE en validación hold-out es ≤ 20 %, equivalente a una precisión estimada
+    del 80 % o superior, complementado con exclusión del confinamiento COVID
+    del ajuste y lectura visual del gráfico.»
+
+  Si el profesor insiste en R² ≥ 0,80:
+    Documente que la serie de siniestralidad vial mensual no alcanza ese umbral
+    por estacionalidad, shocks (COVID) y naturaleza de conteo; justifique el
+    tablero como herramienta exploratoria con validación hold-out.
+
+──────────────────────────────────────────────────────────────────────────────
+6. RESULTADOS DE REFERENCIA — ESCENARIO A (hold-out 3 meses)
+──────────────────────────────────────────────────────────────────────────────
+
+  Modelo        MAPE in-sample   MAPE hold-out   Precisión est.   ¿Cumple 80 %?
+  ─────────────────────────────────────────────────────────────────────────────
+  SARIMA        13,1 %           12,6 %          ~87 %            Sí
+  Media móvil   6,5 %            15,7 %          ~84 %            Sí
+  ARIMA         11,0 %           19,9 %          ~80 %            Límite
+  OLS           11,2 %           18,9 %          ~81 %            Sí
+  Poisson       8,3 %            22,5 %          ~78 %            No
+  Estacional    8,4 %            22,4 %          ~78 %            No
+
+  Nota: Poisson/estacional ganan in-sample pero pierden en hold-out.
+        Para sustentación con criterio 80 %, priorice hold-out sobre in-sample.
+
+──────────────────────────────────────────────────────────────────────────────
+7. ORDEN SUGERIDO DE EVALUACIÓN
+──────────────────────────────────────────────────────────────────────────────
+
+  A (completo) → G, H, I (rangos) → B, C → D, E → F
+
+  Cierre documentado en: SECCION1_CIERRE_PROYECCION_MENSUAL.txt (estado CERRADA).
+
+  Referencia territorial/clase en escenarios D y E:
+    · Comuna Castilla → comuna_id = 27
+    · Clase Atropello → clase_incidente_id = 2
+
+──────────────────────────────────────────────────────────────────────────────
+8. RESULTADOS ESCENARIOS B–F (hold-out 3 meses, 2018–2021 salvo G–I)
+──────────────────────────────────────────────────────────────────────────────
+
+  Mejor hold-out por escenario (MAPE % → precisión estimada):
+
+  B víctimas      → media_movil 14,7 % (~85 %) | sarima 19,3 % | ols 18,1 %
+  C fatales       → estacional 19,7 % (~80 %) | poisson 19,9 % (serie volátil)
+  D Castilla      → media_movil 8,4 % (~92 %) | ols 9,2 % | arima 9,5 %
+  E Atropello     → poisson 11,6 % (~88 %) | estacional 12,1 %
+  F sin COVID     → ols 11,7 % (~88 %) | estacional 12,1 % | sarima 32,9 % (evitar)
+
+  Conclusión transversal:
+    · Para incidentes ciudad (A): SARIMA mejor hold-out; media móvil segunda opción.
+    · Excluir COVID del ajuste es necesario (F vs A).
+    · Series territoriales/clase concreta: estacional, Poisson o MA suelen bastar.
+    · Víctimas fatales (C): ningún modelo supera holgadamente 80 %; usar con cautela.
+
+──────────────────────────────────────────────────────────────────────────────
+9. CIERRE DE SECCIÓN 1 (2026-06-18)
+──────────────────────────────────────────────────────────────────────────────
+
+  Estado: CERRADA — ver SECCION1_CIERRE_PROYECCION_MENSUAL.txt
+
+  Modelo adoptado — incidentes ciudad (escenario A):
+    · Principal: SARIMA(2,1,3)(1,1,1,12)
+    · Alternativa simple: media móvil, ventana 3 meses
+
+  Configuración obligatoria en producción:
+    · Excluir mar–ago 2020: sí
+    · Rango recomendado: 2018–2021 o ≥ 24 meses para SARIMA
+    · Meses de prueba: 3
+
+  Tabla resumen — mejor MAPE prueba por escenario:
+
+  ID   Variable / filtro          Mejor modelo      MAPE prueba   Precisión ~
+  ───  ───────────────────────  ────────────────  ────────────  ───────────
+  A    Incidentes ciudad        SARIMA              12,6 %        87 %
+  G    6 meses                  Poisson/MA *        15,7 %        84 %  (*parcial)
+  H    12 meses                 Poisson             14,4 %        86 %
+  I    18 meses post-COVID      Media móvil         15,7 %        84 %
+  B    Víctimas ciudad          Media móvil         14,7 %        85 %
+  C    Fatales ciudad           Estacional          19,7 %        80 %
+  D    Castilla                 Media móvil          8,4 %        92 %
+  E    Atropello                Poisson             11,6 %        88 %
+  F    Sin excl. COVID          OLS                 11,7 %        88 %  (SARIMA 32,9 %)
+
+──────────────────────────────────────────────────────────────────────────────
+10. CIERRE DE SECCIÓN 2 — PRIORIDAD TERRITORIAL (2026-06-18)
+──────────────────────────────────────────────────────────────────────────────
+
+  Estado: CERRADA — ver SECCION2_CIERRE_PRIORIDAD_TERRITORIAL.txt
+
+  Índice adoptado (P05):
+    · Fórmula fija: 30/15/20/20/15 (freq, densidad, delta promedios, fatal, part)
+    · Referencia: comunas ciudad 2018–2021; líder La Candelaria (índice 62,6)
+    · Barrios: uso con vista «solo frecuencia» (escenario B = parcial)
+
+  ranking_util: 6 escenarios si, 1 parcial (B barrios ciudad)
+
+  Siguiente paso: trasladar secciones 1–5 al informe de grado.
+
+  Archivos sección 2:
+    · SECCION2_CIERRE_PRIORIDAD_TERRITORIAL.txt
+    · LEEME_evaluacion_seccion2_prioridad.txt
+    · predicciones_seccion2_prioridad_territorial.csv
+
+──────────────────────────────────────────────────────────────────────────────
+11. CIERRE DE SECCIÓN 3 — CARGA PROYECTADA TERRITORIAL (2026-06-18)
+──────────────────────────────────────────────────────────────────────────────
+
+  Estado: CERRADA — ver SECCION3_CIERRE_CARGA_TERRITORIAL.txt
+
+  Modelo adoptado (P08/P09/P10):
+    · Estacional por territorio, horizonte 3 meses, excluir COVID
+    · Referencia: comunas ciudad 2018–2021; líder La Candelaria
+    · Uso: ranking comparativo de carga futura; no presupuesto exacto de incidentes
+
+  cierre_util: 9 escenarios si, 2 parcial (A/ARIMA, B barrios ciudad)
+
+  Siguiente paso: trasladar secciones 1–5 al informe de grado.
+
+  Archivos sección 3:
+    · SECCION3_CIERRE_CARGA_TERRITORIAL.txt
+    · LEEME_evaluacion_seccion3_carga_territorial.txt
+    · predicciones_seccion3_carga_territorial.csv
+
+──────────────────────────────────────────────────────────────────────────────
+12. CIERRE DE SECCIÓN 4 — PROPORCIÓN VÍCTIMAS FATALES (2026-06-18, v1.1)
+──────────────────────────────────────────────────────────────────────────────
+
+  Estado: CERRADA — ver SECCION4_CIERRE_PROPORCION_FATALES.txt
+
+  Modelos adoptados (P07), ciudad 2018–2021:
+    · Por defecto: estacional sobre %
+    · Alternativas: logit con exposición, ratio compuesto (fatales÷víctimas)
+    · Prueba: 3 meses reservados; MAPE prueba ~20–22 % con modelos principales
+
+  Referencia escenario A:
+    · R² ~0,36–0,38 (moderado) · MAPE ajuste ~15–16 %
+    · % observado medio ~0,66 % · Excluir COVID obligatorio
+
+  CSV: 14 filas (8 modelos en A) · util: 6 sí, 2 parcial, 6 no
+
+  Mejoras v1.1: hold-out, modelos para proporciones, bandas en gráfico,
+  ajuste sin redondeo, guía de lectura en UI.
+
+  Siguiente paso: trasladar secciones 1–5 al informe de grado.
+
+  Archivos:
+    · SECCION4_CIERRE_PROPORCION_FATALES.txt
+    · LEEME_evaluacion_seccion4_proporcion_fatales.txt
+    · predicciones_seccion4_proporcion_fatales.csv
+
+──────────────────────────────────────────────────────────────────────────────
+13. CIERRE DE SECCIÓN 5 — PATRONES TEMPORALES (2026-06-18, v1.1)
+──────────────────────────────────────────────────────────────────────────────
+
+  Estado: CERRADA — ver SECCION5_CIERRE_PATRONES_TEMPORALES.txt
+
+  Bloque UI: P12 (día×hora) + P13 (día semana) en un solo panel (PatronesDiaHoraPanel).
+
+  Metodología:
+    · Paso 1: total horizonte = suma proyección mensual de incidentes (modelo bloque 1).
+    · Paso 2: reparto por proporciones históricas del periodo + Laplace (no por modelo).
+    · P13: semáforo vs reparto uniforme (14,29 %/día) solo en barras observadas.
+
+  Decisión UI v1.1:
+    · Sin selector de modelo en bloque 5; hereda bloque 1 (modelo + horizonte).
+    · Usuario elige modelo en sección 1; sección 5 responde «cuándo» repartir ese total.
+
+  Referencia ciudad (A), horizonte 3, excluir COVID:
+    · Líder P12: martes 07:00 · Líder P13: martes
+    · Cinco modelos en CSV: mismo patrón, total ~4 573–5 531
+    · Spearman celdas ~0,999 · patron_util: 10 sí, 1 parcial (E), 0 no
+
+  Evaluación módulo Predicciones: secciones 1–5 cerradas. Pendiente: informe de grado.
+
+  Archivos:
+    · SECCION5_CIERRE_PATRONES_TEMPORALES.txt
+    · LEEME_evaluacion_seccion5_patrones_temporales.txt
+    · predicciones_seccion5_patrones_temporales.csv
+    · backend/scripts/llenar_evaluacion_seccion5.py
+
+──────────────────────────────────────────────────────────────────────────────
+14. CIERRE GLOBAL — MÓDULO PREDICCIONES (2026-06-18)
+──────────────────────────────────────────────────────────────────────────────
+
+  Las cinco secciones del tablero /predicciones quedaron evaluadas y cerradas.
+
+  ┌────┬─────────────────────────────┬──────────────────────────┬─────────────┐
+  │ #  │ Bloque                      │ Modelo / decisión        │ Estado      │
+  ├────┼─────────────────────────────┼──────────────────────────┼─────────────┤
+  │ 1  │ Proyección mensual          │ SARIMA incidentes ciudad │ CERRADA     │
+  │ 2  │ Prioridad territorial P05   │ Índice compuesto pasado  │ CERRADA     │
+  │ 3  │ Carga territorial P08       │ Estacional por territorio│ CERRADA     │
+  │ 4  │ Proporción fatales P07      │ Estacional sobre %       │ CERRADA v1.1│
+  │ 5  │ Patrones P12 + P13          │ Hereda bloque 1 (total)  │ CERRADA v1.1│
+  └────┴─────────────────────────────┴──────────────────────────┴─────────────┘
+
+  Cadena volumen → reparto:
+    · Sección 1 → total mensual (modelo elegido por usuario).
+    · Sección 3 → reparto territorial (modelo propio estacional).
+    · Sección 5 → reparto temporal día×hora y día semana (patrón histórico + total de §1).
+
+  Pendiente único del módulo: redactar secciones 1–5 en el informe de grado.
+
+  Índice de cierres:
+    · SECCION1_CIERRE_PROYECCION_MENSUAL.txt
+    · SECCION2_CIERRE_PRIORIDAD_TERRITORIAL.txt
+    · SECCION3_CIERRE_CARGA_TERRITORIAL.txt
+    · SECCION4_CIERRE_PROPORCION_FATALES.txt
+    · SECCION5_CIERRE_PATRONES_TEMPORALES.txt

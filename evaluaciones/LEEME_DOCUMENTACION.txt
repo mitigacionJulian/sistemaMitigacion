@@ -1,0 +1,45 @@
+ÍNDICE DE DOCUMENTACIÓN — ViaData Medellín
+==========================================
+Actualizado: 2026-06-26
+
+PARA EL JURADO (empezar aquí)
+-----------------------------
+docs/GUIA_SUSTENTACION_COMPLETA.md     Demo, fórmulas, FAQ integral
+docs/GUIA_SUSTENTACION_LIBRERIAS.md    Respuestas cortas: librerías
+docs/LIBRERIAS_Y_SECCIONES.md          Detalle por pantalla y modelo
+docs/DOCUMENTO_TECNICO_SISTEMA.md      Arquitectura, APIs, roles
+
+PARA LA TESIS (integración)
+---------------------------
+docs/VIADATA_DOCUMENTACION_INTEGRAL.md   Documento maestro unificado (exportar a tesis)
+evaluaciones/MATRIZ_ESCENARIOS_CASO_ESTUDIO.md   Matriz escenario A + mejor/peor por sección
+evaluaciones/LEEME_MATRIZ_ESCENARIOS.txt           Cómo regenerar la matriz
+evaluaciones/EVALUACION_MODULO_PREDICCIONES.md   Detalle evaluación §1–§5
+docs/MANUAL_CARGA_DATOS_BD.md                    Cap. datos / ETL
+docs/esquema_base_datos.sql                      Anexo modelo de datos
+
+REPOSITORIO (versionado en Git)
+-------------------------------
+README.md                               Inicio rápido + stack + panel /admin/pruebas
+evaluaciones/LEEME_PRUEBAS_SISTEMA.txt  Guía panel administrador — pruebas pytest
+
+EVALUACIÓN NUMÉRICA (predicciones)
+----------------------------------
+evaluaciones/predicciones_seccion1_proyeccion_mensual.csv
+evaluaciones/predicciones_seccion2_prioridad_territorial.csv
+evaluaciones/predicciones_seccion3_carga_territorial.csv
+evaluaciones/predicciones_seccion4_proporcion_fatales.csv
+evaluaciones/predicciones_seccion5_patrones_temporales.csv
+evaluaciones/predicciones_tres_sigma_evaluacion.csv
+
+Regenerar CSV + matriz MD:
+  backend/scripts/llenar_evaluacion_todas_secciones.py
+  backend/scripts/generar_matriz_escenarios_md.py
+
+PRUEBAS DE SOFTWARE (backend)
+-----------------------------
+docs/DOCUMENTACION_PRUEBAS_SOFTWARE.md  Casos pytest (regenerar: backend/scripts/generar_doc_pruebas.py)
+Panel UI: /admin/pruebas · Guía: evaluaciones/LEEME_PRUEBAS_SISTEMA.txt
+
+NOTA: la carpeta docs/ está versionada en Git (excepto docs/shp/). Los archivos LEEME_evaluacion_*.txt y SECCION*_CIERRE_*.txt son redundantes
+      (contenido en EVALUACION_MODULO_PREDICCIONES.md v2.0). Pueden eliminarse.

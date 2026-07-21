@@ -1,0 +1,173 @@
+CIERRE — SECCIÓN 1: PROYECCIÓN MENSUAL
+======================================
+Estado: CERRADA (2026-06-18)
+Registro completo: predicciones_seccion1_proyeccion_mensual.csv (54 filas, 9 escenarios × 6 modelos)
+Guía operativa: LEEME_evaluacion_predicciones.txt
+
+──────────────────────────────────────────────────────────────────────────────
+1. OBJETIVO Y ALCANCE
+──────────────────────────────────────────────────────────────────────────────
+
+Comparar seis modelos de proyección mensual (OLS, estacional, Poisson, media móvil,
+ARIMA, SARIMA) sobre la serie mensual de incidentes y variantes (víctimas, fatales,
+territorio, clase), eligiendo el más adecuado para el tablero según validación
+predictiva (prueba con meses reservados / hold-out), no solo ajuste al historial.
+
+La sección 1 del tablero queda configurada para uso exploratorio con criterio
+documentado; las secciones 2–6 se evalúan por separado.
+
+──────────────────────────────────────────────────────────────────────────────
+2. CONFIGURACIÓN ESTÁNDAR ADOPTADA
+──────────────────────────────────────────────────────────────────────────────
+
+  Filtros de referencia (escenario A):
+    · Desde: 2018-01-01 — Hasta: 2021-09-30
+    · Variable: incidentes (ciudad completa)
+    · Territorio: registro Medellín
+    · Excluir mar–ago 2020 del ajuste: SÍ (recomendado por defecto en UI)
+
+  Controles sección 1:
+    · Horizonte de proyección: 3 meses
+    · Meses de prueba (hold-out): 3
+    · Media móvil: ventana 3 meses (cuando aplica)
+
+  SARIMA por defecto:
+    · Orden no estacional: (2, 1, 3)
+    · Orden estacional: (1, 1, 1, 12)
+    · Editable en UI (campos Orden ARIMA / Estacional)
+
+  Criterio de confiabilidad adoptado:
+    · MAPE en prueba ≤ 20 %  →  precisión estimada ≥ 80 %
+    · R² ≥ 0,80 no se exige (poco realista en esta serie con COVID y estacionalidad)
+
+──────────────────────────────────────────────────────────────────────────────
+3. DECISIÓN DE MODELO (RESUMEN EJECUTIVO)
+──────────────────────────────────────────────────────────────────────────────
+
+  ┌────────────────────────────┬─────────────────────┬──────────────────────────┐
+  │ Contexto                   │ Modelo elegido      │ MAPE prueba (referencia) │
+  ├────────────────────────────┼─────────────────────┼──────────────────────────┤
+  │ Ciudad — incidentes (A)    │ SARIMA              │ 12,6 % (~87 %)           │
+  │ Alternativa más simple (A) │ Media móvil (3 m)   │ 15,7 % (~84 %)           │
+  │ Ciudad — víctimas (B)      │ Media móvil         │ 14,7 % (~85 %)           │
+  │ Ciudad — fatales (C)       │ Estacional          │ 19,7 % (~80 %, límite)   │
+  │ Comuna Castilla (D)        │ Media móvil         │ 8,4 % (~92 %)            │
+  │ Clase Atropello (E)        │ Poisson             │ 11,6 % (~88 %)           │
+  │ Contraste sin excl. COVID  │ No usar SARIMA      │ 32,9 % si incluye COVID │
+  └────────────────────────────┴─────────────────────┴──────────────────────────┘
+
+  Modelo principal del tablero para proyección mensual de incidentes a nivel ciudad:
+    → SARIMA(2,1,3)(1,1,1,12) con exclusión COVID y rango largo (≥ 24 meses útiles).
+
+  Modelo de respaldo (menor complejidad, desempeño similar en A):
+    → Media móvil simple, ventana 3 meses.
+
+  Modelos descartados como referencia principal en escenario A:
+    · Poisson y estacional: buen in-sample, MAPE prueba > 22 % (sobreajuste relativo).
+    · OLS: ignora estacionalidad; aceptable en hold-out pero R² ≈ 0.
+    · ARIMA: hold-out en el límite (19,9 %); SARIMA supera con mismo costo de datos.
+
+──────────────────────────────────────────────────────────────────────────────
+4. HALLAZGOS POR GRUPO DE ESCENARIOS
+──────────────────────────────────────────────────────────────────────────────
+
+  A — Decisión principal (2018–2021, incidentes, ciudad)
+    · La prueba con meses reservados desempata: SARIMA y media móvil cumplen 80 %.
+    · Poisson/estacional: no usar solo por R² in-sample alto.
+
+  G, H, I — Sensibilidad al rango de fechas
+    · G (6 meses): proyección no confiable salvo uso muy cauteloso (parcial como máximo).
+    · H (12 meses): Poisson o media móvil; ARIMA sin hold-out; SARIMA inactivo.
+    · I (18 meses post-COVID): media móvil más estable; R² = 1 en estacional/Poisson
+      es artefacto por pocos meses válidos tras excluir COVID.
+
+  B, C — Otras variables
+    · Víctimas: comportamiento similar a incidentes; media móvil ligeramente mejor.
+    · Fatales: serie más volátil; ningún modelo destaca; estacional en el umbral 80 %.
+
+  D, E — Filtros territoriales
+    · Castilla (comuna_id 27): todos los modelos con prueba < 13 % salvo casos extremos;
+      media móvil lidera (8,4 %).
+    · Atropello (clase_id 2): Poisson y estacional ~88 % precisión en prueba.
+
+  F — Efecto COVID
+    · Incluir mar–ago 2020 en el ajuste degrada SARIMA (MAPE prueba 32,9 %).
+    · Confirma mantener «Excluir mar–ago 2020» activado por defecto.
+
+──────────────────────────────────────────────────────────────────────────────
+5. proyeccion_razonable — SÍNTESIS (escenarios A, G, H, I)
+──────────────────────────────────────────────────────────────────────────────
+
+  si      → Media móvil y SARIMA (A); Poisson y MA (H); media móvil (I)
+  parcial → OLS, estacional, Poisson, ARIMA (A); Poisson y MA (G); OLS y estacional (H/I);
+             Poisson y estacional (I por R² artefacto)
+  no      → OLS y estacional (G); modelos sin ajuste o hold-out inactivo
+
+  Regla documentada en LEEME sección 2 (columna proyeccion_razonable).
+
+──────────────────────────────────────────────────────────────────────────────
+6. FRASES PARA INFORME / SUSTENTACIÓN
+──────────────────────────────────────────────────────────────────────────────
+
+  Metodología:
+    «Se evaluaron seis familias de modelos sobre nueve escenarios de datos (rango
+    largo, corto, variable, territorio, clase y efecto COVID), registrando métricas
+    in-sample y validación con tres meses reservados al final del periodo.»
+
+  Criterio:
+    «Se adoptó como umbral de confiabilidad exploratoria un MAPE en prueba ≤ 20 %,
+    equivalente a una precisión estimada del 80 % en la anticipación mensual.»
+
+  Decisión:
+    «Para la proyección mensual de incidentes a nivel ciudad (2018–2021, excluyendo
+    mar–ago 2020 del ajuste), el modelo SARIMA(2,1,3)(1,1,1,12) obtuvo el menor
+    error en prueba (MAPE 12,6 %). La media móvil de tres meses ofrece una alternativa
+    más simple con desempeño comparable (MAPE 15,7 %).»
+
+  Limitación:
+    «Las proyecciones son escenarios orientativos para planificación; no sustituyen
+    análisis causal ni intervalos de confianza formal. Con menos de doce meses de
+    historia los modelos ARIMA/SARIMA no aplican o no son fiables.»
+
+──────────────────────────────────────────────────────────────────────────────
+7. AJUSTES IMPLEMENTADOS EN EL TABLERO (relacionados con esta evaluación)
+──────────────────────────────────────────────────────────────────────────────
+
+  Backend
+    · Validación hold-out en proyección mensual (API: holdout_meses, evaluar_holdout).
+    · SARIMA/ARIMA: órdenes por defecto (2,1,3) y (1,1,1,12); parámetros editables
+      vía arima_order y sarima_seasonal.
+    · Interpretación de bondad y hold-out en lenguaje orientado al usuario.
+
+  Frontend (Predicciones → sección 1)
+    · Panel «Prueba del modelo» con precisión estimada y umbral 80 %.
+    · Selector «Meses de prueba» (3 / 6).
+    · Campos Orden ARIMA (p,d,q) y Estacional (P,D,Q,s) para SARIMA/ARIMA.
+    · Guías desplegables y «Lectura rápida» que priorizan prueba sobre R² in-sample.
+
+  Evaluación / reproducibilidad
+    · predicciones_seccion1_proyeccion_mensual.csv — registro de las 54 corridas.
+    · backend/scripts/llenar_evaluacion_seccion1.py — recalcular escenarios B–F.
+    · backend/scripts/validar_proyeccion_razonable_aghi.py — validar columna
+      proyeccion_razonable en A, G, H, I.
+
+──────────────────────────────────────────────────────────────────────────────
+8. PENDIENTE FUERA DE SECCIÓN 1
+──────────────────────────────────────────────────────────────────────────────
+
+  · Evaluar y cerrar sección 2 (prioridad territorial) → CERRADA (SECCION2_CIERRE_PRIORIDAD_TERRITORIAL.txt)
+  · Opcional: cambiar modelo por defecto en UI de OLS → SARIMA para incidentes ciudad.
+  · Informe de grado: incorporar tablas del CSV y gráficos del escenario A.
+
+──────────────────────────────────────────────────────────────────────────────
+9. CHECKLIST DE CIERRE
+──────────────────────────────────────────────────────────────────────────────
+
+  [x] Escenarios A–I evaluados y registrados en CSV
+  [x] Castilla (27) y Atropello (2) documentados en D y E
+  [x] proyeccion_razonable validado en A, G, H, I
+  [x] Modelo principal y alternativa definidos para incidentes ciudad
+  [x] Criterio 80 % y exclusión COVID justificados (escenario F)
+  [x] Ajustes de UI/backend documentados
+  [ ] Trasladar conclusiones al capítulo de metodología del informe de grado
+  [ ] Iniciar evaluación sección 2 → CERRADA (ver SECCION2_CIERRE_PRIORIDAD_TERRITORIAL.txt)

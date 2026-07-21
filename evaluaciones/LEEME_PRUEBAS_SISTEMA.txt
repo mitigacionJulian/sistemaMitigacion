@@ -1,0 +1,120 @@
+GUÍA — PANEL DE PRUEBAS DEL SISTEMA (ADMINISTRADOR)
+====================================================
+Actualizado: 2026-06-26
+
+RUTA EN LA APLICACIÓN
+---------------------
+Menú → Pruebas   o   http://localhost:5173/admin/pruebas
+Rol requerido: administrador (usuario demo: admin / AdminUSB2026!)
+
+OBJETIVO
+--------
+Ejecutar la suite pytest del backend, revisar resultados organizados en la UI
+y exportar un reporte imprimible/PDF (mismo flujo que tablero, mapa y predicciones).
+
+NO requiere Node.js ni Java en el flujo de la aplicación.
+
+
+BOTONES (SOLO DOS)
+------------------
+1. Ejecutar suite
+   · Corre: pytest --alluredir=allure-results --clean-alluredir -q
+   · Guarda JSON en backend/allure-results/ (local, gitignored)
+   · La pantalla se actualiza sola cada ~2,5 s mientras corre
+   · Puede tardar varios minutos
+
+2. Generar reporte
+   · Modal: título y notas opcionales
+   · Vista previa en /reporte/vista
+   · Imprimir / Guardar PDF (diálogo del navegador)
+   · Requiere haber ejecutado la suite antes (hay resultados guardados)
+
+
+QUÉ MUESTRA LA UI TRAS EJECUTAR
+-------------------------------
+· KPIs: total, pasaron, fallaron, rotos, omitidos, duración
+· Tabla por módulo (epic Allure: Cuentas, Dashboard, Mapa, Predicciones…)
+· Tabla de fallos (si los hay)
+· Detalle de todos los casos con filtro por estado
+
+
+VARIABLES DE ENTORNO (.env en la raíz del repo)
+-----------------------------------------------
+Reinicie el backend después de editar .env
+
+DJANGO_DEBUG=1
+  Modo desarrollo. Si no define ALLOW_ADMIN_TEST_RUNNER, habilita
+  automáticamente el botón «Ejecutar suite».
+
+ALLOW_ADMIN_TEST_RUNNER=1
+  Fuerza habilitar la ejecución desde la UI (recomendado en desarrollo local).
+
+ALLOW_ADMIN_TEST_RUNNER=0
+  Deshabilita ejecutar desde la UI aunque DEBUG=1 (solo consulta de resultados previos).
+
+
+CAMPOS DEL REPORTE IMPRIMIBLE
+-----------------------------
+Estado (del runner, no de cada prueba):
+  · idle     — sin ejecución reciente registrada
+  · running  — en curso
+  · done     — pytest terminó con código de salida 0
+  · error    — pytest con fallos, timeout o error del runner
+
+Código salida pytest:
+  · 0  — todas las pruebas pasaron
+  · 1  — al menos una prueba falló
+  · 2  — interrumpido
+  · -1 — timeout (10 min) o no se pudo lanzar pytest
+
+Ejecutado por / Finalizado: usuario admin y marca de tiempo UTC de la ejecución.
+
+
+API REST (JWT administrador)
+----------------------------
+GET  /api/admin/pruebas/           Estado + resumen parseado
+POST /api/admin/pruebas/ejecutar/  Inicia suite en segundo plano
+POST /api/admin/pruebas/reporte/   Payload imprimible { meta, cuerpo }
+
+
+ARCHIVOS DE CÓDIGO
+------------------
+Backend:
+  accounts/pruebas_runner.py      — pytest, parseo JSON Allure
+  accounts/pruebas_reporte.py     — cuerpo del reporte imprimible
+  accounts/admin_pruebas_views.py — endpoints admin
+  allure_reporting.py             — etiquetas epic/feature/indicador
+  conftest.py                     — hook Allure en pytest
+
+Frontend:
+  pages/AdminPruebas.jsx
+  components/reportes/ReportePruebas.jsx
+
+
+EJECUCIÓN EN CONSOLA (ALTERNATIVA)
+----------------------------------
+cd backend
+.\.venv\Scripts\activate
+python -m pytest -q
+python -m pytest --alluredir=allure-results --clean-alluredir -q
+
+Los JSON generados se leen igual en /admin/pruebas (botón Actualizar).
+
+
+ALLURE HTML OFICIAL (OPCIONAL, NO NECESARIO)
+--------------------------------------------
+Solo si desea el dashboard clásico de Allure en consola:
+  · Node.js (npx) + Java 8+
+  · .\run_pytest_allure.ps1 -Serve  o  -Static
+
+El panel admin NO usa ese HTML; usa los JSON + UI propia + reporte PDF.
+
+
+PRUEBAS AUTOMATIZADAS DEL PANEL
+-------------------------------
+backend/accounts/tests/test_admin_pruebas_api.py
+
+DOCUMENTACIÓN RELACIONADA
+-------------------------
+README.md § Pruebas backend
+docs/DOCUMENTACION_PRUEBAS_SOFTWARE.md (local, regenerar con scripts/generar_doc_pruebas.py)

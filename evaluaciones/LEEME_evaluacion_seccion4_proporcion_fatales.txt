@@ -1,0 +1,93 @@
+GUÍA DE EVALUACIÓN — SECCIÓN 4: PROPORCIÓN VÍCTIMAS FATALES (P07)
+==================================================================
+
+Documentación de librerías: docs/LIBRERIAS_Y_SECCIONES.md §3.5 sección 3.
+Backend: dashboard/proporcion_fatales_mensual.py (NumPy). Frontend: Recharts.
+
+Archivo: predicciones_seccion4_proporcion_fatales.csv (14 filas)
+Pantalla: Predicciones → «4. Proporción de víctimas fatales»
+Estado: CERRADA (2026-06-18, v1.1)
+Cierre: SECCION4_CIERRE_PROPORCION_FATALES.txt
+
+──────────────────────────────────────────────────────────────────────────────
+1. QUÉ SE EVALUÓ
+──────────────────────────────────────────────────────────────────────────────
+
+Si tiene sentido mostrar y proyectar el **% de víctimas fatales por mes**
+(fatales / víctimas × 100), con los mismos filtros del resto del tablero.
+
+No confundir con:
+  · Sección 1 → cuántos incidentes, víctimas o fatales (números enteros).
+  · Sección 2 → índice de prioridad territorial (mezcla varios indicadores).
+  · Sección 3 → incidentes esperados por comuna o barrio.
+
+──────────────────────────────────────────────────────────────────────────────
+2. CÓMO SE HIZO LA EVALUACIÓN
+──────────────────────────────────────────────────────────────────────────────
+
+  1. Fijar filtros de referencia (ciudad, 2018–2021, excluir COVID).
+  2. Probar modelos en escenario A; escenarios B–G solo con estacional.
+  3. Registrar R², MAPE del ajuste, MAPE de la prueba (3 meses reservados).
+  4. Marcar proyeccion_razonable: sí / parcial / no.
+
+  Regenerar CSV:
+    cd backend
+    .venv\Scripts\python scripts/llenar_evaluacion_seccion4.py
+
+──────────────────────────────────────────────────────────────────────────────
+3. ESCENARIOS
+──────────────────────────────────────────────────────────────────────────────
+
+  A — Ciudad 2018–2021, COVID excluido → 8 modelos
+  B — Comuna Castilla → estacional
+  C — Clase Atropello → estacional
+  D — Solo 12 meses → estacional
+  E — Sin excluir COVID → estacional
+  F — Territorio espacial (PostGIS) → estacional
+  G — 18 meses post-COVID → estacional
+
+──────────────────────────────────────────────────────────────────────────────
+4. MODELOS EN ESCENARIO A (ciudad)
+──────────────────────────────────────────────────────────────────────────────
+
+  Adoptados (util = sí):
+    estacional · logit_offset · ratio_compuesto
+
+  Descartados (util = no):
+    media_movil · ols · logistica · arima · sarima
+
+  Criterio práctico:
+    · Util «sí» si la prueba con meses reservados tiene MAPE ≤ 20 % en los
+      modelos principales, o R² moderado con MAPE de ajuste ≤ 20 %.
+    · No exigir R² alto: el % mensual es muy volátil.
+
+──────────────────────────────────────────────────────────────────────────────
+5. COLUMNAS DEL CSV
+──────────────────────────────────────────────────────────────────────────────
+
+  n_meses_ajuste · pct_promedio_observado · pct_promedio_horizonte
+  r2 · mape_pct (ajuste) · mape_holdout_pct · holdout_activo
+  bondad_nivel · proyeccion_razonable · notas
+
+──────────────────────────────────────────────────────────────────────────────
+6. RESULTADO RESUMIDO (2026-06-18)
+──────────────────────────────────────────────────────────────────────────────
+
+  Ciudad (A): los tres modelos principales pasan; logit_offset tiene el
+  mejor MAPE en prueba (~20 %). Estacional queda como default en UI.
+
+  Territorio/clase (B, C): util parcial o condicionado; avisar al usuario.
+
+  Rangos cortos o sin COVID (D, E): no recomendados.
+
+  PostGIS (F): equivalente al registro.
+
+  Ventana 18 meses (G): R²=1 es artefacto; la prueba sí muestra error ~27 %.
+
+  Ver CSV y SECCION4_CIERRE_*.txt para detalle.
+
+──────────────────────────────────────────────────────────────────────────────
+7. SIGUIENTE PASO DEL PROYECTO
+──────────────────────────────────────────────────────────────────────────────
+
+  Trasladar secciones 1–5 al informe de grado.

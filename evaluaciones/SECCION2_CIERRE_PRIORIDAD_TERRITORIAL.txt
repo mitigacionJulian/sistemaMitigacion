@@ -1,0 +1,172 @@
+CIERRE — SECCIÓN 2: PRIORIDAD TERRITORIAL (P05)
+===============================================
+Estado: CERRADA (2026-06-18)
+Registro completo: predicciones_seccion2_prioridad_territorial.csv (7 escenarios)
+Guía operativa: LEEME_evaluacion_seccion2_prioridad.txt
+
+──────────────────────────────────────────────────────────────────────────────
+1. OBJETIVO Y ALCANCE
+──────────────────────────────────────────────────────────────────────────────
+
+Validar el **índice compuesto P05** para priorizar territorios (comuna o barrio)
+en el periodo filtrado. A diferencia de la sección 1, **no hay elección de modelo
+predictivo**: la fórmula del índice es fija y transparente en la UI.
+
+El índice responde: «¿qué territorios concentran más carga, densidad, empeoramiento
+reciente y gravedad relativa en este periodo?» — no proyecta el futuro (eso es
+sección 1 y 4).
+
+──────────────────────────────────────────────────────────────────────────────
+2. FÓRMULA ADOPTADA (versión final)
+──────────────────────────────────────────────────────────────────────────────
+
+  Índice = 30 %·score(Freq) + 15 %·score(Dens) + 20 %·score(Tend)
+         + 20 %·score(Fatal) + 15 %·score(Part)
+
+  Cada score se normaliza 0–100 entre territorios elegibles del mismo nivel.
+
+  Tendencia (Tend):
+    · Delta de promedios mensuales por territorio
+    · Ventana 6 meses si hay ≥ 12 meses en el periodo; si no, mitad de la serie
+    · Mínimo 6 meses en la serie (tras excluir COVID del tramo si aplica)
+    · Solo deltas ≥ 0 entran al índice
+    · Atenuación si el territorio está bajo el percentil 25 de frecuencia
+
+  Elegibilidad:
+    · Comuna: ≥ 5 incidentes en el periodo
+    · Barrio: ≥ 25 incidentes en el periodo
+
+  Controles UI (no son «modelos»):
+    · Nivel territorial: comuna | barrio
+    · Ordenar por: índice compuesto | solo frecuencia (volumen)
+
+──────────────────────────────────────────────────────────────────────────────
+3. DECISIÓN Y USO RECOMENDADO
+──────────────────────────────────────────────────────────────────────────────
+
+  ┌─────────────────────────┬────────────────────────────────────────────────┐
+  │ Contexto                │ Uso adoptado                                   │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ Ciudad — comunas (A)    │ Referencia principal; La Candelaria #1         │
+  │ Ciudad — barrios (B)    │ Usar con guía + vista «solo frecuencia»        │
+  │ Intra-comuna (D)        │ Caribe lidera en Castilla; coherente           │
+  │ Filtro clase (E)        │ La Candelaria #1 en Atropello                  │
+  │ Rango 12 meses (C)      │ Índice estable; misma lógica                   │
+  │ Sin excl. COVID (F)     │ Mismo top que A en comunas (sin cambio orden)  │
+  │ Territorio espacial (G) │ La Candelaria #1; totales menores que registro │
+  └─────────────────────────┴────────────────────────────────────────────────┘
+
+  **Adopción para el tablero:**
+    · Índice compuesto P05 **aceptado** para priorización exploratoria a nivel **comuna**.
+    · A nivel **barrio**: aceptado con **lectura complementaria** (aviso si #1 no
+      lidera por volumen; contrastar con «Solo por frecuencia»).
+    · Complementar con **sección 3 (carga esperada)** para anticipación futura.
+
+  **No sustituye:** mapa de densidad, tablero descriptivo (top por víctimas), ni
+  estudios causales de seguridad vial.
+
+──────────────────────────────────────────────────────────────────────────────
+4. RESULTADOS POR ESCENARIO (CSV, delta de promedios)
+──────────────────────────────────────────────────────────────────────────────
+
+  ID   Nivel    Top 1              Índice   # vol.   Spearman   ranking_util
+  ───  ───────  ─────────────────  ───────  ───────  ─────────  ────────────
+  A    comuna   La Candelaria       62,6      1       0,85       si
+  B    barrio   Sin Inf (Robledo)   56,2     17       0,90       parcial
+  C    comuna   La Candelaria       68,6      1       0,85       si
+  D    barrio   Caribe (Castilla)   58,1      1       0,85       si
+  E    comuna   La Candelaria       75,2      1       0,88       si
+  F    comuna   La Candelaria       62,6      1       0,85       si
+  G    comuna   La Candelaria       61,3      1       0,86       si
+
+  Hallazgos transversales:
+    · 6/7 escenarios ranking_util = si; solo B (barrios ciudad) = parcial.
+    · Spearman índice vs frecuencia alto (0,85–0,90): el índice no se desvía
+      del volumen en comunas; en barrios puede reordenar por tendencia/gravedad.
+    · Excluir COVID del tramo de tendencia (F vs A): sin cambio del líder en A.
+    · Modo espacial (G): mismo líder, menos incidentes totales (asignación PostGIS).
+
+──────────────────────────────────────────────────────────────────────────────
+5. INTERPRETACIÓN — EJEMPLO LA CANDELARIA (escenario A)
+──────────────────────────────────────────────────────────────────────────────
+
+  Componentes típicos del #1 (scores 0–100 relativos):
+    · Freq 100, Dens 100, Part 100 → lidera volumen, densidad y participación
+    · Tend ~5, Fatal ~8 → aportan poco al índice frente a otras comunas
+    · Índice ≈ 62,6 = 30+15+1+1,5+15 (aprox.)
+
+  Frase de lectura:
+    «Encabeza por concentración de incidentes, no porque sea la comuna que más
+    empeora o la más letal en términos relativos.»
+
+  Documentado en UI: guía «Scores y índice» + ejemplo dinámico con el #1 actual.
+
+──────────────────────────────────────────────────────────────────────────────
+6. FRASES PARA INFORME / SUSTENTACIÓN
+──────────────────────────────────────────────────────────────────────────────
+
+  Metodología:
+    «Se implementó un índice compuesto (P05) con cinco dimensiones normalizadas
+    entre territorios elegibles: frecuencia, densidad por km², delta de promedios
+    mensuales, proporción de víctimas fatales y participación en el total del periodo.»
+
+  Por qué no hay selector de modelo en esta sección:
+    «La priorización territorial es descriptiva y relativa al periodo filtrado;
+    la proyección temporal corresponde a la sección de proyección mensual y a
+    la carga esperada territorial.»
+
+  Decisión:
+    «A nivel comuna (2018–2021, excluyendo mar–ago 2020 de la tendencia), La
+    Candelaria encabeza el ranking con índice 62,6, coherente con el mayor volumen
+    y densidad de incidentes. El índice se adopta para priorización exploratoria
+    en el tablero, complementado por la vista de solo frecuencia y por carga esperada.»
+
+  Limitación barrios:
+    «En ranking barrial, territorios con tendencia al alza pueden superar en índice
+    a barrios de mayor volumen; la UI advierte cuando el #1 no lidera por incidentes.»
+
+──────────────────────────────────────────────────────────────────────────────
+7. AJUSTES IMPLEMENTADOS (evolución de la sección)
+──────────────────────────────────────────────────────────────────────────────
+
+  Backend (prioridad_territorial.py):
+    · Pesos 30/15/20/20/15 con componente densidad/km²
+    · Tendencia: delta de promedios (sustituye OLS)
+    · Mínimo 25 incidentes en barrio
+    · Atenuación de tendencia bajo percentil 25 de frecuencia
+    · ranking_por_frecuencia, alerta_liderazgo, sensibilidad_pesos en meta
+
+  Frontend (Predicciones → sección 2):
+    · Recarga al cambiar nivel territorial (corrige undefined en barrios)
+    · Ordenar por índice | solo frecuencia; columna # vol. en vista compuesta
+    · Guías: columnas, pesos, scores e índice, sensibilidad
+    · Aviso amarillo si #1 no lidera por volumen
+    · Sin selector de modelo (texto explícito)
+
+  Evaluación:
+    · predicciones_seccion2_prioridad_territorial.csv
+    · scripts/llenar_evaluacion_seccion2.py
+
+──────────────────────────────────────────────────────────────────────────────
+8. PENDIENTE FUERA DE SECCIÓN 2
+──────────────────────────────────────────────────────────────────────────────
+
+  · Evaluar y cerrar sección 4 (proporción víctimas fatales / P07)
+  · Trasladar conclusiones al capítulo de metodología del informe de grado
+  · Opcional: documentar en docs/ (carpeta local gitignored)
+
+──────────────────────────────────────────────────────────────────────────────
+9. CHECKLIST DE CIERRE
+──────────────────────────────────────────────────────────────────────────────
+
+  [x] Escenarios A–G evaluados y registrados en CSV
+  [x] Fórmula final con delta de promedios documentada
+  [x] Pesos 30/15/20/20/15 y mínimos comuna/barrio justificados
+  [x] Escenario A como referencia (La Candelaria #1, ranking_util si)
+  [x] B documentado como parcial con mitigación en UI
+  [x] F vs A y G vs A comparados
+  [x] Guía UI de scores e índice (sin repetición por fila)
+  [x] Ajustes backend/UI documentados
+  [ ] Trasladar al informe de grado
+  [x] Iniciar evaluación sección 3 (carga esperada) — CERRADA 2026-06-18
+  [ ] Iniciar evaluación sección 4

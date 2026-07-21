@@ -1,0 +1,151 @@
+CIERRE — SECCIÓN 4: PROPORCIÓN VÍCTIMAS FATALES (P07)
+======================================================
+Estado: CERRADA (2026-06-18, revisión con mejoras v1.1)
+Registro completo: predicciones_seccion4_proporcion_fatales.csv (14 filas)
+Guía operativa: LEEME_evaluacion_seccion4_proporcion_fatales.txt
+
+──────────────────────────────────────────────────────────────────────────────
+1. OBJETIVO Y ALCANCE
+──────────────────────────────────────────────────────────────────────────────
+
+Responder si el tablero puede mostrar, con criterio documentado, la evolución
+del **porcentaje de víctimas fatales** mes a mes (fatales ÷ víctimas × 100) y
+una lectura orientativa a 3 meses.
+
+No es lo mismo que contar fatales (sección 1) ni que ordenar territorios
+(secciones 2 y 3). Aquí la pregunta es de **gravedad relativa**: en un mes dado,
+¿qué tan alto o bajo fue el % frente al patrón habitual?
+
+Tras la revisión v1.1 el bloque incluye:
+  · Ajuste sobre el % real (sin redondear a enteros).
+  · Prueba con meses reservados (hold-out), como en la sección 1.
+  · Modelos pensados para proporciones: logit con exposición y ratio compuesto.
+  · Banda aproximada en la proyección (±1,96×RMSE).
+
+──────────────────────────────────────────────────────────────────────────────
+2. CONFIGURACIÓN ADOPTADA
+──────────────────────────────────────────────────────────────────────────────
+
+  Referencia (escenario A):
+    · 2018-01-01 — 2021-09-30, ciudad completa, excluir mar–ago 2020
+    · Horizonte 3 meses · Prueba 3 meses reservados
+    · Mínimo 10 víctimas/mes para que el mes entre al cálculo del %
+
+  Modelo por defecto en el tablero:
+    → **Estacional sobre %** (tendencia + mes calendario)
+
+  Alternativas aceptadas (misma evaluación A):
+    → **Logit con exposición** (meses con más víctimas pesan más)
+    → **Ratio compuesto** (proyecta fatales y víctimas por separado y divide)
+
+  No usar como referencia:
+    · OLS, logit-lineal simple, ARIMA y SARIMA directos sobre el %
+    · Ajuste sin excluir COVID (escenario E)
+    · Rangos muy cortos (12 meses o menos de ajuste útil)
+
+  Cómo leer las métricas:
+    · R² moderado (~0,35–0,45) es normal en esta serie; no exigir ≥ 0,80.
+    · La **prueba con meses reservados** pesa más que el R² del gráfico.
+    · MAPE del % suele rondar 15–22 % en ciudad con modelo adecuado.
+
+──────────────────────────────────────────────────────────────────────────────
+3. DECISIÓN Y USO EN PRODUCCIÓN
+──────────────────────────────────────────────────────────────────────────────
+
+  ┌─────────────────────────┬────────────────────────────────────────────────┐
+  │ Situación               │ Qué hacer                                      │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ Ciudad, uso general     │ Estacional (default); logit o ratio si compara │
+  │ Comuna o clase filtrada │ Solo exploración; error en prueba suele subir  │
+  │ Menos de 24 meses útil  │ Ampliar fechas; no confiar en la proyección    │
+  │ Sin excluir COVID       │ No usar; el % de 2020 distorsiona el ajuste    │
+  │ Modo espacial           │ Resultados similares al registro (esc. F)      │
+  └─────────────────────────┴────────────────────────────────────────────────┘
+
+  Mensaje para el usuario del tablero:
+    · El gráfico sirve para ver **meses relativamente más graves o más leves**,
+      no para anticipar el % exacto del próximo mes.
+    · En Medellín 2018–2021 el % observado ronda **0,66 %** (entre 0,35 y 1,2 %).
+    · La línea roja y la zona sombreada son una **pista**, no un presupuesto.
+    · Cruzar con volumen (sección 1) y prioridad territorial (sección 2).
+
+──────────────────────────────────────────────────────────────────────────────
+4. RESULTADOS (CSV 2026-06-18, escenario A — ciudad, 39 meses de ajuste)
+──────────────────────────────────────────────────────────────────────────────
+
+  Modelo           R²     MAPE ajuste   MAPE prueba   util
+  ──────────────   ────   ───────────   ───────────   ────
+  estacional       0,38   16,5 %        22,0 %        sí
+  logit_offset     0,36   15,2 %        20,3 %        sí
+  ratio_compuesto  0,38   16,1 %        21,2 %        sí
+  media_movil      0,32   17,0 %        35,1 %        no
+  ols              0,01   21,8 %        36,5 %        no
+  logistica        0,00   21,1 %        35,5 %        no
+  arima            0,00   24,5 %        28,6 %        no
+  sarima           0,00   30,4 %        34,3 %        no
+
+  Escenarios B–G (estacional):
+
+  ID   R²     MAPE ajuste   MAPE prueba   util      Comentario
+  ──   ────   ───────────   ───────────   ───────   ──────────────────────
+  B    0,59   42,3 %        56,0 %        sí*       Castilla; pocos casos/mes
+  C    0,48   47,9 %        25,5 %        parcial   Atropello; % medio ~1,5 %
+  D    0,09   19,4 %        23,0 %        no        Solo 12 meses
+  E    0,02   23,1 %        43,2 %        no        COVID incluido en ajuste
+  F    0,36   16,6 %        24,2 %        sí        PostGIS ≈ registro
+  G    1,00   0,0 %         26,9 %        parcial   Ventana corta; R² engañoso
+
+  (* B: util «sí» por criterio script con hold-out; en UI conviene aviso territorial.)
+
+  Resumen util (14 filas): 6 sí · 2 parcial · 6 no
+
+──────────────────────────────────────────────────────────────────────────────
+5. HALLAZGOS QUE SUSTENTAN EL CIERRE
+──────────────────────────────────────────────────────────────────────────────
+
+  · Los tres modelos principales (estacional, logit exposición, ratio) pasan la
+    evaluación en ciudad; el logit tiene el MAPE de prueba más bajo (~20 %).
+  · Corregir el redondeo a entero cambió levemente el R²; las cifras actuales
+    reflejan el % real mes a mes.
+  · OLS y ARIMA sobre el % casi no explican la variación mensual (R² ~ 0).
+  · Excluir mar–ago 2020 sigue siendo imprescindible.
+  · Con menos de 24 meses de ajuste las métricas se vuelven inestables.
+
+──────────────────────────────────────────────────────────────────────────────
+6. MEJORAS INCORPORADAS (v1.1 — ya en producción)
+──────────────────────────────────────────────────────────────────────────────
+
+  [x] Ajuste en escala real del % (sin int(round))
+  [x] Hold-out en API y UI (meses de prueba)
+  [x] logit_offset y ratio_compuesto
+  [x] Bandas aproximadas en proyección
+  [x] Aviso de rango corto y contador de meses de ajuste
+  [x] Modelos avanzados ocultos tras checkbox en UI
+
+──────────────────────────────────────────────────────────────────────────────
+7. RELACIÓN CON OTRAS SECCIONES
+──────────────────────────────────────────────────────────────────────────────
+
+  · Sección 1-C: cuántos fatales hubo (conteo), no el %.
+  · Sección 2: % fatales dentro del índice P05 (pasado integrado).
+  · Sección 3: cuántos incidentes se esperan por territorio (volumen).
+  · Sección 5: patrones día×hora y día semana (P12 · P13) — **cerrada v1.1** 2026-06-18.
+
+──────────────────────────────────────────────────────────────────────────────
+8. PENDIENTE FUERA DE ESTE CIERRE
+──────────────────────────────────────────────────────────────────────────────
+
+  · Sección 5: patrones P12/P13 — cerrada 2026-06-18
+  · Llevar este apartado al informe de grado (metodología + limitaciones)
+
+──────────────────────────────────────────────────────────────────────────────
+9. CHECKLIST
+──────────────────────────────────────────────────────────────────────────────
+
+  [x] Escenarios A–G en CSV (14 filas, 8 modelos en A)
+  [x] Hold-out y nuevos modelos evaluados
+  [x] Estacional por defecto; alternativas documentadas
+  [x] Guía de interpretación en UI
+  [x] Script llenar_evaluacion_seccion4.py al día
+  [ ] Texto en capítulo de grado
+  [x] Sección 5 (patrones) cerrada — ver SECCION5_CIERRE_PATRONES_TEMPORALES.txt
